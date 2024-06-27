@@ -1,2 +1,1 @@
-
-from .core import OSplusplus
+from .ospp import OSplusplus

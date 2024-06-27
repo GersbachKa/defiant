@@ -1,5 +1,5 @@
 
-class InvalidCoreError(Exception):
+class BadCoreError(Exception):
     """A Simple Exception class for more specific error messages relating to the 
     la_forge.core.Core() usage in the OSpluplus
     """
@@ -29,7 +29,7 @@ class ModelPTAError(Exception):
     def __str__(self):
         return f'ModelPTAError: {self.message}'
     
-class NMOSInteruptionError(Exception):
+class NMOSInteruptError(Exception):
     """A Simple Exception class for more specific error messages relating to the 
     noise marginalization of the OSpluplus
     """
@@ -39,7 +39,7 @@ class NMOSInteruptionError(Exception):
     def __str__(self):
         return f'NMOSIteruptionError: {self.message}'
     
-class InteruptedPairCovariance(Exception):
+class PCOSInteruptError(Exception):
     """A Simple Exception class for more specific error messages relating to the 
     pair covaraiance of the OSpluplus
     """
