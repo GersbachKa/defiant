@@ -320,7 +320,7 @@ def binned_pair_correlations(xi, rho, sig, bins=10):
     return xiavg,rhoavg,sigavg
 
 
-def binned_pair_covariant_correlations(xi, rho, Sigma, orf='hd', bins=10):
+def binned_pair_covariant_correlations(xi, rho, Sigma, bins=10, orf='hd'):
     """Create binned separation vs correlations with pulsar pair covariances.
 
     This function creates a binned version of the xi, rho, and sig values to better
@@ -330,7 +330,7 @@ def binned_pair_covariant_correlations(xi, rho, Sigma, orf='hd', bins=10):
     of pulsar pairs per bin. Note that this function only works with continuous 
     ORFs in pulsar separation space.
     Also note that orf can be replaced with a custom function which must accept 
-    pulsar separations (in radians) as its only argument.
+    pulsar positions (cartesian) as its only 2 arguments.
     Predefined orf names are:
         'hd' - Hellings and downs
         'dipole' - Dipole
@@ -351,31 +351,6 @@ def binned_pair_covariant_correlations(xi, rho, Sigma, orf='hd', bins=10):
         rhoavg (numpy.ndarray): The weighted average pulsar pair correlated amplitudes
         sigavg (numpy.ndarray): The uncertainty in the weighted average pair amplitudes
     """
-    if type(orf) == str:
-        from enterprise_extensions import model_orfs
-
-        if orf.lower() == 'hd':
-            orf_func = model_orfs.hd_orf
-        elif orf.lower() == 'dipole':
-            orf_func = model_orfs.dipole_orf
-        elif orf.lower() == 'monopole':
-            orf_func = model_orfs.monopole_orf
-        elif orf.lower() == 'gw_dipole':
-            orf_func = model_orfs.gw_dipole_orf
-        elif orf.lower() == 'gw_monopole':
-            orf_func = model_orfs.gw_monopole_orf
-        elif orf.lower() == 'st':
-            orf_func = model_orfs.st_orf
-        else:
-            raise ValueError(f"Undefined ORF name '{orf}'")
-        orf_func
-    else:
-        orf_func = orf
-    
-    
-    orf_lamb = lambda xi: orf_func([1,0,0], [np.cos(xi),np.sin(xi),0])
-
-
     temp = np.arange(0,len(xi),len(xi)/bins,dtype=np.int16)
 
     ranges = np.zeros(bins+1)
@@ -395,14 +370,67 @@ def binned_pair_covariant_correlations(xi, rho, Sigma, orf='hd', bins=10):
         subXi = (xi[sortMask])[l:h]
         subRho = (rho[sortMask])[l:h]
         subSig = (Sigma[sortMask,:][:,sortMask])[l:h,l:h]
-        subORF = np.array([orf_lamb(xi) for xi in subXi])[:,None]
+        subORF = orf_xi(subXi,orf)[:,None]
 
         r,s2 = linear_solve(subORF,subSig,subRho,'pinv')
 
         xiavg[i] = np.average(subXi)
-        bin_orf = orf_lamb(np.average(subXi))
+        bin_orf = orf_xi(xiavg[i],orf)
         rhoavg[i] = bin_orf * r
         sigavg[i] = np.abs(bin_orf)*np.sqrt(s2)
     
     return xiavg, rhoavg, sigavg
+
+
+def orf_xi(xi, orf='hd'):
+    """A function to turn pulsar separations into correlations using a set ORF
+
+    Given a pulsar separation or separations, compute the correlation factor
+    for that separation and given overlap reduction function. Note that orf can be 
+    replaced with a custom function which must accept pulsar positions (cartesian) 
+    as its only 2 arguments.
+    Predefined orf names are:
+        'hd' - Hellings and downs
+        'dipole' - Dipole
+        'monopole' - Monopole
+        'gw_dipole' - Gravitational wave dipole
+        'gw_monopole' - Gravitational wave monopole
+        'st' - Scalar transverse
+
+    Args:
+        xi (numpy.ndarray or float): A vector or float of pulsar pair separation(s)
+        orf (str, function): The name of a predefined ORF function or custom function 
+
+    Raises:
+        ValueError: If given a string of an unrecognized ORF
+
+    Returns:
+        _type_: correlation(s) for the pair separation(s)
+    """
+    if type(orf) == str:
+        from enterprise_extensions import model_orfs
+        if orf.lower() == 'hd':
+            orf_func = model_orfs.hd_orf
+        elif orf.lower() == 'dipole':
+            orf_func = model_orfs.dipole_orf
+        elif orf.lower() == 'monopole':
+            orf_func = model_orfs.monopole_orf
+        elif orf.lower() == 'gw_dipole':
+            orf_func = model_orfs.gw_dipole_orf
+        elif orf.lower() == 'gw_monopole':
+            orf_func = model_orfs.gw_monopole_orf
+        elif orf.lower() == 'st':
+            orf_func = model_orfs.st_orf
+        else:
+            raise ValueError(f"Undefined ORF name '{orf}'")
+        orf_func
+    else:
+        orf_func = orf
+    
+    orf_lamb = lambda x: orf_func([1,0,0], [np.cos(x),np.sin(x),0])
+
+    if np.array(xi).size>1:
+        return np.array([orf_lamb(x) for x in xi])
+    else:
+        return orf_lamb(xi)    
 

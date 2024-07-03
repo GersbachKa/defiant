@@ -212,7 +212,7 @@ class OSplusplus:
         self.orf_design_matrix = self.orf_design_matrix.T
         
 
-    def compute_os(self, params=None, N=1, gamma=None, pair_covariance=True, 
+    def compute_OS(self, params=None, N=1, gamma=None, pair_covariance=True, 
                    save_pair_vals=False, use_tqdm=True):
         
         if N==1:
@@ -303,7 +303,7 @@ class OSplusplus:
         return A2, A2s, param_index
 
 
-    def compute_pfos(self, params=None, N=1, pair_covariance=True, narrowband=False,
+    def compute_PFOS(self, params=None, N=1, pair_covariance=True, narrowband=False,
                      save_pair_vals=False, use_tqdm=True):
         
         if N==1:
@@ -445,6 +445,40 @@ class OSplusplus:
     
 
     def _compute_os_iteration(self, params, phihat, pair_covariance, use_tqdm):
+        """Compute a single iteration of the OS. Users should use compute_OS() instead.
+
+        An internal function to run a single iteration of the optimal statistic 
+        using the supplied parameter dictionary. This function will give 1-sigma 
+        uncertainties for A2s if there is a single ORF, otherwise it will return 
+        the covaraince matrix between the processes.
+
+        Args:
+            params (_type_): _description_
+            phihat (_type_): _description_
+            pair_covariance (_type_): _description_
+            use_tqdm (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        """
+
+         Details of the PFOS 
+        implementation can be found in Gersbach et al. 2024.
+
+        Args:
+            params (dict): A dictionary of parameter values for the PTA.
+            narrowband (bool): Whether to use the narrowband-normalized PFOS instead.
+            pair_covariance (bool): Whether to use pair covariance in the solving.
+            use_tqdm (bool): Whether to use a TQDM progress bar.
+
+        Returns:
+            rho_abk (numpy.ndarray): The pairwise correlated powers for each frequency.
+            sig_abk (numpy.ndarray): The pairwise uncertainties in rho_abk for each frequency.
+            Ck (numpy.ndarray): The pair covariance matrix used for each frequency.
+            Sk (numpy.ndarray): The PSD(f_k)/T_{span} for each frequency.
+            Sks (numpy.ndarray): The uncertainty or covariance matrix in Sk for each frequency.
+        """
         
         X,Z = self._compute_XZ(params)
         rho_ab, sig_ab = self._compute_rho_sig(X,Z,phihat)
@@ -462,11 +496,11 @@ class OSplusplus:
                 # MCOS
                 C = pc._compute_mcos_pair_covariance(Z, phihat, phihat, 
                         self._orf_matrix, self.orf_design_matrix, rho_ab, sig_ab, 
-                        sig_ab, a2_est, use_tqdm, self._max_chunk)
+                        np.square(sig_ab), a2_est, use_tqdm, self._max_chunk)
             else:
                 # Single component
                 C = pc._compute_pair_covariance(Z, phihat, phihat, 
-                        self._orf_matrix[0], sig_ab, a2_est, use_tqdm, self._max_chunk)
+                        self._orf_matrix[0], np.square(sig_ab), a2_est, use_tqdm, self._max_chunk)
         else:
             solve_method='diagonal'
             C = np.square(sig_ab)
@@ -481,16 +515,40 @@ class OSplusplus:
 
 
     def _compute_pfos_iteration(self, params, narrowband, pair_covariance, use_tqdm):
+        """Compute a single iteration of the PFOS. Users should use compute_PFOS() instead.
 
+        An internal function to run a single iteration of the per frequency 
+        optimal statistic using the supplied parameter dictionary. This function
+        defaults to using the broadband-normalized PFOS. This function will give
+        1-sigma uncertainties for Sks if there is a single ORF, otherwise it will
+        return the covaraince matrix between the processes. Details of the PFOS 
+        implementation can be found in Gersbach et al. 2024.
+
+        Args:
+            params (dict): A dictionary of parameter values for the PTA.
+            narrowband (bool): Whether to use the narrowband-normalized PFOS instead.
+            pair_covariance (bool): Whether to use pair covariance in the solving.
+            use_tqdm (bool): Whether to use a TQDM progress bar.
+
+        Returns:
+            rho_abk (numpy.ndarray): The pairwise correlated powers for each frequency.
+            sig_abk (numpy.ndarray): The pairwise uncertainties in rho_abk for each frequency.
+            Ck (numpy.ndarray): The pair covariance matrix used for each frequency.
+            Sk (numpy.ndarray): The PSD(f_k)/T_{span} for each frequency.
+            Sks (numpy.ndarray): The uncertainty or covariance matrix in Sk for each frequency.
+        """
         X,Z = self._compute_XZ(params)
-        #phi = self.pta._signal[0][self.gwb_name].get_phi(params)
         gw_signal = [s for s in self.pta._signalcollections[0] if s.signal_id==self.gwb_name][0]
         phi = gw_signal.get_phi(params)
         rho_abk, sig_abk, norm_abk = self._compute_rhok_sigk(X,Z,phi,narrowband)
 
         Sk = np.zeros( (self.nfreq, self.norfs) )
         Sks = np.zeros( (self.nfreq, self.norfs,self.norfs) )
-        all_C = np.zeros( (self.nfreq,self.npairs,self.npairs) )
+        if pair_covariance:
+            Ck = np.zeros( (self.nfreq,self.npairs,self.npairs) )
+        else:
+            Ck = np.zeros( (self.nfreq,self.npairs) )
+
         for k in range(self.nfreq) if not use_tqdm else tqdm(range(self.nfreq)):
             sk = phi[2*k]
 
@@ -502,30 +560,30 @@ class OSplusplus:
 
             if pair_covariance:
                 solve_method = 'pinv'
-                if self.norf>1:
+                if self.norfs>1:
                     # MCOS
-                    C = pc._compute_mcos_pair_covariance(Z, phi1, phi2, self._orf_matrix, 
+                    Ck[k] = pc._compute_mcos_pair_covariance(Z, phi1, phi2, self._orf_matrix, 
                             self.orf_design_matrix, rho_abk[k], sig_abk[k], norm_abk[k], sk, 
                             False, self._max_chunk)
                 else:
                     # Single component
-                    C = pc._compute_pair_covariance(Z, phi1, phi2, 
+                    Ck[k] = pc._compute_pair_covariance(Z, phi1, phi2, 
                             self._orf_matrix[0], norm_abk[k], sk, False, self._max_chunk)
             else:
                 solve_method='diagonal'
-                C = np.square(sig_abk[k])
+                Ck[k] = sig_abk[k]**2
         
-            s, ssig = utils.linear_solve(self.orf_design_matrix, C, 
+            s, ssig = utils.linear_solve(self.orf_design_matrix, Ck[k], 
                                          rho_abk[k,:,None], solve_method)
+            
             Sk[k] = np.squeeze(s) if self.norfs>1 else s.item()
-            Sks[k] = np.squeeze(ssig) if self.norfs>1 else np.sqrt(s.item()) 
-            all_C[k] = C
+            Sks[k] = np.squeeze(ssig) if self.norfs>1 else np.sqrt(ssig.item()) 
 
         Sk = np.squeeze(Sk) 
         Sks = np.squeeze(Sks)
-        all_C = np.squeeze(all_C)
+        Ck = np.squeeze(Ck)
 
-        return rho_abk, sig_abk, all_C, Sk, Sks
+        return rho_abk, sig_abk, Ck, Sk, Sks
 
     
     def _compute_rho_sig(self, X, Z, phihat):
@@ -590,22 +648,19 @@ class OSplusplus:
         norms_abk = np.zeros( (self.nfreq,self.npairs) )
 
         for k in range(self.nfreq):
-            phi_til = np.zeros( self.nfreq )  
+            phi_til = np.zeros(self.nfreq)  
             phi_til[k] = 1
             phi_til = np.repeat(phi_til,2)
             # Use 2*k as there is a sine and cosine power
-            Phi = phi/phi[2*k]
+            phi2 = phi/phi[2*k]
 
-            numerator = np.sum(X[a] * X[b] * phi_til, axis=1)
-            # Don't ask me why this is faster, I don't know, it just is.
             if narrowband:
-                denominator = np.einsum('ijk,ikj->i', phi_til*Z[a], phi_til*Z[b]) 
+                norms_abk[k] = 1/(np.einsum('ijk,ikj->i',phi_til*Z[a],phi_til*Z[b]))
             else:
-                denominator = np.einsum('ijk,ikj->i', phi_til*Z[a], Phi*Z[b])
+                norms_abk[k] = 1/(np.einsum('ijk,ikj->i',phi_til*Z[a],phi2*Z[b]))
 
-            rho_abk[k] = numerator/denominator
-            sig_abk[k] = 1/np.sqrt(denominator)
-            norms_abk[k] = 1/denominator
+            rho_abk[k] =  np.sum(X[a] * phi_til * X[b], axis=1) * norms_abk[k]
+            sig_abk[k] =  np.sqrt(np.einsum('ijk,ikj->i', phi_til*Z[a], phi_til*Z[b]) * norms_abk[k]**2)
 
         return rho_abk, sig_abk, norms_abk
 

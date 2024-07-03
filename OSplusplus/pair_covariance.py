@@ -186,6 +186,6 @@ def _factored_pair_covariance(Z, phi1, phi2, orf, norm_ab, use_tqdm, max_chunk):
     if use_tqdm: progress.close()
 
     # Include the final sigmas
-    C_m[:] *= np.outer(norm_ab**2,norm_ab**2)
+    C_m[:] *= np.outer(norm_ab,norm_ab)
 
     return C_m
