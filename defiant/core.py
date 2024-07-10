@@ -1,8 +1,8 @@
 
-from . import ospp_exceptions as os_ex
+from . import custom_exceptions as os_ex
 from . import utils
 from . import pair_covariance as pc 
-from . import ospp_nulldist as os_nu
+from . import null_distribution as os_nu
 
 import numpy as np
 import scipy.linalg as sl
@@ -18,7 +18,7 @@ from tqdm import tqdm
 from warnings import warn
 
 
-class OSplusplus:
+class OptimalStatistic:
 
 
     def __init__(self, psrs, pta, gwb_name='gw', corepath=None, core=None,  

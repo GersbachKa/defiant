@@ -2,7 +2,7 @@
 import numpy as np
 import scipy.linalg as sl
 
-from .ospp_exceptions import *
+from .custom_exceptions import *
 
 
 def linear_solve(X,C,r,method=None):

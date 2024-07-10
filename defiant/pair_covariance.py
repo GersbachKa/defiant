@@ -1,5 +1,5 @@
 
-from .ospp_exceptions import *
+from .custom_exceptions import *
 from .utils import linear_solve
 
 import numpy as np
