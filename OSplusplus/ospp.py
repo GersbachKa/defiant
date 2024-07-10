@@ -62,6 +62,8 @@ class OSplusplus:
 
         self._max_chunk = max_chunk
 
+        self._cache = {}
+
 
     def set_chain_params(self, core=None, corepath=None, chain_path=None, 
                          chain=None, param_names=None):
@@ -213,7 +215,7 @@ class OSplusplus:
         
 
     def compute_OS(self, params=None, N=1, gamma=None, pair_covariance=True, 
-                   save_pair_vals=False, use_tqdm=True):
+                   return_pair_vals=True, use_tqdm=True):
         
         if N==1:
             if params is None and self.lfcore is None:
@@ -239,7 +241,7 @@ class OSplusplus:
             rho, sig, C, A2, A2s = self._compute_os_iteration(pars, phihat,
                                                     pair_covariance, use_tqdm)
             
-            if save_pair_vals:
+            if return_pair_vals:
                 xi,_ = utils.compute_pulsar_pair_separations(self.psrs, self._pair_idx)
                 return xi,rho,sig,C,A2,A2s
             else:
@@ -252,7 +254,7 @@ class OSplusplus:
 
         
         self.nmos_iterations = {'A2':[],'A2s':[],'param_index':[]}
-        if save_pair_vals:
+        if return_pair_vals:
             xi = utils.compute_pulsar_pair_separations(self.psrs, self._pair_idx)
             self.nmos_iterations['xi'] = xi
             self.nmos_iterations['rho'] = []
@@ -262,7 +264,7 @@ class OSplusplus:
             # I would parallelize this, but unfortunately I can't pickle an OS++ object
             # due to the pta requirement. If I could pickle a PTA, it would be trivial!
             for iter in tqdm(range(N)) if use_tqdm else range(N):
-                rand_i = np.random.random_integers(self.lfcore.burn, self.lfcore.chain.shape[0])
+                rand_i = np.random.random_integers(self.lfcore.burn, self.lfcore.chain.shape[0]-1)
                 params = {p:v for p,v in zip(self.lfcore.params,self.lfcore.chain[rand_i])}
                 
                 pars = utils.freespec_param_fix(params,self.gwb_name)
@@ -279,7 +281,7 @@ class OSplusplus:
                 self.nmos_iterations['A2s'].append(A2s)
                 self.nmos_iterations['param_index'].append(rand_i)
                 
-                if save_pair_vals:
+                if return_pair_vals:
                     self.nmos_iterations['rho'].append(rho)
                     self.nmos_iterations['sig'].append(sig)
                     self.nmos_iterations['C'].append(C)
@@ -289,22 +291,22 @@ class OSplusplus:
             raise os_ex.NMOSInteruptError(msg) from e
 
         
-        A2 = self.nmos_iterations['A2']
-        A2s = self.nmos_iterations['A2s']
-        param_index = self.nmos_iterations['param_index']
+        A2 = np.array( self.nmos_iterations['A2'] )
+        A2s = np.array( self.nmos_iterations['A2s'] )
+        param_index = np.array( self.nmos_iterations['param_index'] )
 
-        if save_pair_vals:
-            xi = self.nmos_iterations['xi']
-            rho = self.nmos_iterations['rho']
-            sig = self.nmos_iterations['sig']
-            C = self.nmos_iterations['C']
-            return xi,rho,sig,C,A2,A2s,param_index
+        if return_pair_vals:
+            xi = np.array( self.nmos_iterations['xi'] )
+            rho = np.array( self.nmos_iterations['rho'] )
+            sig = np.array( self.nmos_iterations['sig'] )
+            C = np.array( self.nmos_iterations['C'] )
+            return np.array( xi,rho,sig,C,A2,A2s,param_index )
 
         return A2, A2s, param_index
 
 
     def compute_PFOS(self, params=None, N=1, pair_covariance=True, narrowband=False,
-                     save_pair_vals=False, use_tqdm=True):
+                     return_pair_vals=True, use_tqdm=True):
         
         if N==1:
             if params is None and self.lfcore is None:
@@ -322,7 +324,7 @@ class OSplusplus:
             rhok,sigk,Ck,Sk,Sks = self._compute_pfos_iteration(pars, narrowband, 
                                                         pair_covariance, use_tqdm)
             
-            if save_pair_vals:
+            if return_pair_vals:
                 xi,_ = utils.compute_pulsar_pair_separations(self.psrs,self._pair_idx)
                 return xi,rhok,sigk,Ck,Sk,Sks
             else:
@@ -332,14 +334,10 @@ class OSplusplus:
         if self.lfcore is None:
             msg = 'Cannot Noise marginalize with a Null La forge core! '
             raise ValueError(msg)
-
-        # I would parallelize this, but unfortunately I can't pickle an OS++ object
-        # due to the pta requirement. If I could pickle a PTA, it would be trivial!
-        seed = np.random.randint(0,int(2**63)) if seed is None else seed
-        rng = np.random.default_rng(seed) 
+        
                 
         self.nmos_iterations = {'Sk':[],'Sks':[],'param_index':[]}
-        if save_pair_vals:
+        if return_pair_vals:
             xi = utils.compute_pulsar_pair_separations(self.psrs, self._pair_idx)
             self.nmos_iterations['xi'] = xi
             self.nmos_iterations['rhok'] = []
@@ -347,8 +345,10 @@ class OSplusplus:
             self.nmos_iterations['Ck'] = []
 
         try:
+            # I would parallelize this, but unfortunately I can't pickle an OS++ object
+            # due to the pta requirement. If I could pickle a PTA, it would be trivial!
             for iter in tqdm(range(N)) if use_tqdm else range(N):
-                rand_i = rng.integers(self.lfcore.burn, self.lfcore.chain.shape[0]).item()
+                rand_i = np.random.random_integers(self.lfcore.burn, self.lfcore.chain.shape[0]-1)
                 params = {p:v for p,v in zip(self.lfcore.params,self.lfcore.chain[rand_i])}
                 pars = utils.freespec_param_fix(params, self.gwb_name)
                 
@@ -358,7 +358,7 @@ class OSplusplus:
                 self.nmos_iterations['Sk'].append(Sk)
                 self.nmos_iterations['Sks'].append(Sks)
                 self.nmos_iterations['param_index'].append(rand_i)
-                if save_pair_vals:
+                if return_pair_vals:
                     self.nmos_iterations['rhok'].append(rhok)
                     self.nmos_iterations['sigk'].append(sigk)
                     self.nmos_iterations['Ck'].append(Ck)
@@ -368,32 +368,18 @@ class OSplusplus:
             raise os_ex.NMOSInteruptError(msg) from e
 
         
-        Sk = self.nmos_iterations['A2']
-        Sks = self.nmos_iterations['A2s']
-        param_index = self.nmos_iterations['param_index']
+        Sk = np.array( self.nmos_iterations['Sk'] )
+        Sks = np.array( self.nmos_iterations['Sks'] )
+        param_index = np.array( self.nmos_iterations['param_index'] )
 
-        if save_pair_vals:
-            xi = self.nmos_iterations['xi']
-            rhok = self.nmos_iterations['rhok']
-            sigk = self.nmos_iterations['sigk']
-            Ck = self.nmos_iterations['Ck']
-        return xi,rhok, sigk, Ck, Sk, Sks, param_index
+        if return_pair_vals:
+            xi = np.array( self.nmos_iterations['xi'] )
+            rhok = np.array( self.nmos_iterations['rhok'] )
+            sigk = np.array( self.nmos_iterations['sigk'] )
+            Ck = np.array( self.nmos_iterations['Ck'] )
+            return xi,rhok, sigk, Ck, Sk, Sks, param_index
     
-
-    def compute_sky_scramble(self):
-        return os_nu.compute_sky_scramble(self)
-
-
-    def compute_phase_shift(self):
-        return os_nu.compute_phase_shift(self)
-
-
-    def compute_super_scramble(self):
-        return os_nu.compute_super_scramble(self)
-
-
-    def compute_GX2(self):
-        return os_nu.compute_GX2(self)
+        return Sk, Sks, param_index
     
 
     def _compute_XZ(self, params):
@@ -405,12 +391,15 @@ class OSplusplus:
 
         Args:
             params (dict): A dictionary containing the parameter name:value pairs for the PTA
+            use_cache (bool): Whether to use cached values for constant matrix products.
 
         Returns:
             (np.array, np.array): A tuple of X and Z. X is an array of vectors for each pulsar 
                 (N_pulsar x 2N_frequency). Z is an array of matrices for each pulsar 
                 (N_pulsar x 2N_frequency x 2N_frequency)
         """
+        # TODO: Deal with caching values. Which matrix products can be cached between
+        # parameter changes?
 
         X = np.zeros( shape = ( self.npsr, 2*self.nfreq ) ) # An array of vectors
         Z = np.zeros( shape = ( self.npsr, 2*self.nfreq, 2*self.nfreq ) ) # An array of matrices
@@ -453,31 +442,17 @@ class OSplusplus:
         the covaraince matrix between the processes.
 
         Args:
-            params (_type_): _description_
-            phihat (_type_): _description_
-            pair_covariance (_type_): _description_
-            use_tqdm (_type_): _description_
-
-        Returns:
-            _type_: _description_
-        """
-        """
-
-         Details of the PFOS 
-        implementation can be found in Gersbach et al. 2024.
-
-        Args:
             params (dict): A dictionary of parameter values for the PTA.
-            narrowband (bool): Whether to use the narrowband-normalized PFOS instead.
+            phihat (numpy.ndarray): The unit-model spectrum to evaluate the OS with.
             pair_covariance (bool): Whether to use pair covariance in the solving.
             use_tqdm (bool): Whether to use a TQDM progress bar.
 
         Returns:
-            rho_abk (numpy.ndarray): The pairwise correlated powers for each frequency.
-            sig_abk (numpy.ndarray): The pairwise uncertainties in rho_abk for each frequency.
-            Ck (numpy.ndarray): The pair covariance matrix used for each frequency.
-            Sk (numpy.ndarray): The PSD(f_k)/T_{span} for each frequency.
-            Sks (numpy.ndarray): The uncertainty or covariance matrix in Sk for each frequency.
+            rho_ab (numpy.ndarray): The pairwise correlated powers.
+            sig_ab (numpy.ndarray): The pairwise uncertainties in rho_ab.
+            C (numpy.ndarray): The pair covariance matrix used.
+            A2 (numpy.ndarray): The \hat{A}^2 of the GWB.
+            A2s (numpy.ndarray): The uncertainty or covariance matrix in Sk for each frequency.
         """
         
         X,Z = self._compute_XZ(params)
