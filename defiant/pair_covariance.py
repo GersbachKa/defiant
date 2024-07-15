@@ -17,11 +17,11 @@ def _compute_mcos_pair_covariance(Z, phi1, phi2, orf, design, rho_ab, sig_ab,
     # MCOS w/ pair covariance - From Sardesai et al. 2023
     # Need to compute the a no-PC MCOS for amp estimates
     temp_c = np.diag(np.square(sig_ab))
-    mcos,_,_ = linear_solve(design,temp_c,rho_ab,'pinv')
+    mcos,_ = linear_solve(design,temp_c,rho_ab,'pinv')
     est_pow = a2_est*(mcos/np.sum(mcos))
 
     # Hijack the factored code by giving it correlated power in ORF and A2=1!
-    cor_pow = np.sum([o*a for o,a in zip(orf,est_pow)], axis=1)
+    cor_pow = np.sum([o*a for o,a in zip(orf,est_pow)], axis=0)
 
     fact_c = _factored_pair_covariance(Z,phi1,phi2,cor_pow,norm_ab,use_tqdm,max_chunk)
     return fact_c[0] + fact_c[1] + fact_c[2]

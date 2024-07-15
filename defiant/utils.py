@@ -1,6 +1,7 @@
 
 import numpy as np
 import scipy.linalg as sl
+from scipy.stats import multivariate_normal
 
 from .custom_exceptions import *
 
@@ -271,66 +272,16 @@ def freespec_covariance(lfcore, gwb_name):
     return cov
 
 
-def binned_pair_correlations(xi, rho, sig, bins=10):
+def binned_pair_correlations(xi, rho, sig, bins=10, orf='hd'):
     """Create binned separation vs correlations with even pairs per bin.
 
     This function creates a binned version of the xi, rho, and sig values to better
     vizualize the correlations as a function of pulsar separation. This function uses
     even number of pulsar pairs per bin. Note that this function only works with continuous 
-    ORFs in pulsar separation space.
-
-    Args:
-        xi (numpy.ndarray): A vector of pulsar pair separations
-        rho (numpy.ndarray): A vector of pulsar pair correlated amplitude
-        sig (numpy.ndarray): A vector of uncertainties in rho
-        bins (int): Number of bins to use. Defaults to 10.
-
-    Returns:
-        xiavg (numpy.ndarray): The average pulsar separation in each bin
-        rhoavg (numpy.ndarray): The weighted average pulsar pair correlated amplitudes
-        sigavg (numpy.ndarray): The uncertainty in the weighted average pair amplitudes
-    """
-    temp = np.arange(0,len(xi),len(xi)/bins,dtype=np.int16)
-    ranges = np.zeros(bins+1)
-    ranges[0:bins]=temp
-    ranges[bins]=len(xi)
-    
-    xiavg = np.zeros(bins)
-    rhoavg = np.zeros(bins)
-    sigavg = np.zeros(bins)
-    
-    #Need to sort by pulsar separation
-    sortMask = np.argsort(xi)
-    
-    for i in range(bins):
-        #Mask and select range of values to average
-        subXi = xi[sortMask]
-        subXi = subXi[int(ranges[i]):int(ranges[i+1])]
-        subRho = rho[sortMask]
-        subRho = subRho[int(ranges[i]):int(ranges[i+1])]
-        subSig = sig[sortMask]
-        subSig = subSig[int(ranges[i]):int(ranges[i+1])]
-        
-        subSigSquare = np.square(subSig)
-        
-        xiavg[i] = np.average(subXi)
-        rhoavg[i] = np.sum(subRho/subSigSquare)/np.sum(1/subSigSquare)
-        sigavg[i] = 1/np.sqrt(np.sum(1/subSigSquare))
-    
-    return xiavg,rhoavg,sigavg
-
-
-def binned_pair_covariant_correlations(xi, rho, Sigma, bins=10, orf='hd'):
-    """Create binned separation vs correlations with pulsar pair covariances.
-
-    This function creates a binned version of the xi, rho, and sig values to better
-    vizualize the correlations as a function of pulsar separation while including
-    some of the effects of pulsar pair covariances. Note that this does not account 
-    for correlations between the different bins. This function uses even number 
-    of pulsar pairs per bin. Note that this function only works with continuous 
-    ORFs in pulsar separation space.
-    Also note that orf can be replaced with a custom function which must accept 
-    pulsar positions (cartesian) as its only 2 arguments.
+    ORFs in pulsar separation space. If given a sig which has a shape of [N_pairs x N_pairs],
+    this function will assume you have supplied a pair covariance matrix and will use
+    equation [35] from Gersbach et al. 2024. Also note that orf can be replaced with 
+    a custom function which must accept pulsar positions (cartesian) as its only 2 arguments.
     Predefined orf names are:
         'hd' - Hellings and downs
         'dipole' - Dipole
@@ -342,9 +293,10 @@ def binned_pair_covariant_correlations(xi, rho, Sigma, bins=10, orf='hd'):
     Args:
         xi (numpy.ndarray): A vector of pulsar pair separations
         rho (numpy.ndarray): A vector of pulsar pair correlated amplitude
-        Sigma (numpy.ndarray): The pulsar pair covariance matrix
-        orf (str, function): The name of a predefined ORF function or custom function 
+        sig (numpy.ndarray): A vector of uncertainties in rho OR a covariance matrix
         bins (int): Number of bins to use. Defaults to 10.
+        orf (str, function): The name of a predefined ORF function or custom function
+            orf is only used if sig is a covariance matrix
 
     Returns:
         xiavg (numpy.ndarray): The average pulsar separation in each bin
@@ -352,7 +304,6 @@ def binned_pair_covariant_correlations(xi, rho, Sigma, bins=10, orf='hd'):
         sigavg (numpy.ndarray): The uncertainty in the weighted average pair amplitudes
     """
     temp = np.arange(0,len(xi),len(xi)/bins,dtype=np.int16)
-
     ranges = np.zeros(bins+1)
     ranges[0:bins]=temp
     ranges[bins]=len(xi)
@@ -364,22 +315,40 @@ def binned_pair_covariant_correlations(xi, rho, Sigma, bins=10, orf='hd'):
     #Need to sort by pulsar separation
     sortMask = np.argsort(xi)
     
-    for i in range(bins):
-        #Mask and select range of values to average
-        l,h = int(ranges[i]), int(ranges[i+1])
-        subXi = (xi[sortMask])[l:h]
-        subRho = (rho[sortMask])[l:h]
-        subSig = (Sigma[sortMask,:][:,sortMask])[l:h,l:h]
-        subORF = orf_xi(subXi,orf)[:,None]
 
-        r,s2 = linear_solve(subORF,subSig,subRho,'pinv')
+    if len(sig.shape)>1:
+        for i in range(bins):
+            #Mask and select range of values to average
+            l,h = int(ranges[i]), int(ranges[i+1])
+            subXi = (xi[sortMask])[l:h]
+            subRho = (rho[sortMask])[l:h]
+            subSig = (sig[sortMask,:][:,sortMask])[l:h,l:h]
+            subORF = orf_xi(subXi,orf)[:,None]
 
-        xiavg[i] = np.average(subXi)
-        bin_orf = orf_xi(xiavg[i],orf)
-        rhoavg[i] = bin_orf * r
-        sigavg[i] = np.abs(bin_orf)*np.sqrt(s2)
+            r,s2 = linear_solve(subORF,subSig,subRho,'pinv')
+
+            xiavg[i] = np.average(subXi)
+            bin_orf = orf_xi(xiavg[i],orf)
+            rhoavg[i] = bin_orf * r
+            sigavg[i] = np.abs(bin_orf)*np.sqrt(s2)
+
+    else:
+        for i in range(bins):
+            #Mask and select range of values to average
+            subXi = xi[sortMask]
+            subXi = subXi[int(ranges[i]):int(ranges[i+1])]
+            subRho = rho[sortMask]
+            subRho = subRho[int(ranges[i]):int(ranges[i+1])]
+            subSig = sig[sortMask]
+            subSig = subSig[int(ranges[i]):int(ranges[i+1])]
+        
+            subSigSquare = np.square(subSig)
+        
+            xiavg[i] = np.average(subXi)
+            rhoavg[i] = np.sum(subRho/subSigSquare)/np.sum(1/subSigSquare)
+            sigavg[i] = 1/np.sqrt(np.sum(1/subSigSquare))
     
-    return xiavg, rhoavg, sigavg
+    return xiavg,rhoavg,sigavg
 
 
 def orf_xi(xi, orf='hd'):
@@ -434,3 +403,129 @@ def orf_xi(xi, orf='hd'):
     else:
         return orf_lamb(xi)    
 
+
+def calculate_mean_sigma_for_MCOS(xi, A2, A2_cov, orfs=['hd','dipole','monopole'], 
+                                  n_samples=1000):
+    """Calculate the mean and sigma of the total MCOS fit for a given xi.
+
+    For a given pulsar pair separation, xi (can be a vector of xi), this function
+    will calculate the mean and sigma of the total correlated power for a given
+    MCOS fit A2 vector and A2_cov covariance matrix. You will also need to supply
+    the ORFs you want to use in the calculation. 
+    Predefined orf names are:
+        'hd' - Hellings and downs
+        'dipole' - Dipole
+        'monopole' - Monopole
+        'gw_dipole' - Gravitational wave dipole
+        'gw_monopole' - Gravitational wave monopole
+        'st' - Scalar transverse
+
+    Args:
+        xi (numpy.ndarray): A vector of pulsar pair separations
+        A2 (numpy.ndarray): A vector of A^2 values
+        A2_cov (numpy.ndarray): A covariance matrix between A^2 values
+        orfs (list, optional): A list of ORFs to use (either names or custom functions).
+        n_samples (int): The number of samples of the fit to generate. Defaults to 1000.
+    
+    Returns:
+        (np.ndarray,np.ndarray): The corresponding mean and 1-sigma standard deviation.
+    """
+    norm = multivariate_normal(mean=A2,cov=A2_cov)
+    rvs = norm.rvs(size=n_samples)
+    orf_mods = [orf_xi(xi, o) for o in orfs]
+
+    mod_vals = []
+    for A2 in rvs:
+        mod_vals.append(np.sum([a*o for a,o in zip(A2,orf_mods)],axis=0))
+
+    return np.mean(mod_vals,axis=0), np.std(mod_vals,axis=0)
+
+
+
+def uncertainty_sample(A2,A2s,pfos=False,mcos=False,n_usamples=100):
+    """A function to generate the full A^2 distribution from means and 1-sigma errors
+
+    A function to implement uncertainty sampling to account for underlying 
+    uncertainty in the optimal statistic A^2. This function uses Gaussians (or 
+    multivariate Gaussians for MCOS) at each point. This function also works for
+    PFOS, MCOS, any combination. 
+
+    NOTE: The expected shape of A2 and A2s are dependent on pfos and mcos flags.
+    *N is the number of noise marginalized iterations, M is the number of orf models,
+    and F is the number of frequencies. (These are default output shapes of defiant!)
+
+    If pfos is False and mcos is False: 
+        A2 and A2s are [N] and [N] respectively (i.e. arrays)
+    If pfos is False and mcos is True:
+        A2 and A2s are [N x M] and [N x M] respectively
+    If pfos is True and mcos is False:
+        A2 and A2s are [N x F] and [N x F] respectively
+    If pfos is True and mcos is True:
+        A2 and A2s are [N x F x M] and [N x F x M] respectively
+        
+
+    Args:
+        A2 (np.ndarray): An array of A2 or Sk values from the OS or PFOS respectively
+        A2s (np.ndarray): An array of A2s or Sks values from the OS or PFOS respectively
+        pfos (bool): A flag to use a PFOS version. Defaults to False.
+        mcos (bool): A flag to use a MCOS version. Defaults to False.
+        n_usamples (int, optional): The number of random samples for each NMOS iteration. 
+            Defaults to 100.
+
+    Returns:
+        tot_A2: An array of the total A^2 or S(f_k) distribution
+            The shape of the return is:
+                [N_samples] if pfos is False and mcos is False
+                [N_samples x M] if pfos is False and mcos is True
+                [N_samples x F] if pfos is True and mcos is False
+                [N_samples x F x M] if pfos is True and mcos is True
+                
+    """
+    if pfos:
+        if mcos:
+            # PF+NM+MC+OS
+            nm_iter = A2.shape[0]
+            n_freq = A2.shape[1]
+            n_orf = A2.shape[2]
+
+            all_A2 = np.zeros((nm_iter*n_usamples,n_freq,n_orf))
+            for i in range(nm_iter):
+                for j in range(n_freq):
+                    mv_norm = np.random.multivariate_normal(A2[i,j,:],A2s[i,j,:],size=(n_usamples))
+                    all_A2[i*n_usamples:(i+1)*n_usamples,j,:] = mv_norm
+            
+        else:
+            # PF+NM+OS
+            nm_iter = A2.shape[0]
+            n_freq = A2.shape[1]
+
+            all_A2 = np.zeros((nm_iter*n_usamples,n_freq))
+            for i in range(nm_iter):
+                for j in range(n_freq):
+                    mv_norm = np.random.normal(A2[i,j],A2s[i,j],size=(n_usamples))
+                    all_A2[i*n_usamples:(i+1)*n_usamples,j] = mv_norm
+
+    else: # OS
+        if mcos:
+            # NM+MC+OS
+            nm_iter = A2.shape[0]
+            n_orf = A2.shape[1]
+
+            all_A2 = np.zeros((nm_iter*n_usamples,n_orf))
+            for i in range(nm_iter):
+                mv_norm = np.random.multivariate_normal(A2[i,:],A2s[i,:],size=(n_usamples))
+                all_A2[i*n_usamples:(i+1)*n_usamples,:] = mv_norm
+            
+        else:
+            # NM+OS
+            nm_iter = A2.shape[0]
+
+            all_A2 = np.zeros((nm_iter*n_usamples))
+            for i in range(nm_iter):
+                mv_norm = np.random.normal(A2[i,:],A2s[i,:],size=(n_usamples))
+                all_A2[i*n_usamples:(i+1)*n_usamples,:] = mv_norm
+    
+    return all_A2
+
+            
+    

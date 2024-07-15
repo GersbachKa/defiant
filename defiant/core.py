@@ -19,11 +19,64 @@ from warnings import warn
 
 
 class OptimalStatistic:
+    """A class to compute the various forms of the Optimal Statistic for a given PTA.
 
+    This class is designed in such a way to be able to combine all of the various
+    generalizations of the Optimal Statistic into a single, cohesive class. This class
+    can be made to compute any of the froms shown in the defiant choice tree in the 
+    documentation of defiant.
 
-    def __init__(self, psrs, pta, gwb_name='gw', corepath=None, core=None,  
+    Attributes:
+        pta: The enterprise.signals.signal_base.PTA object for the pulsar timing array.
+        psrs: A list of enterprise.pulsar.BasePulsar objects for the pulsars in the PTA.
+        npsr: The number of pulsars in the PTA.
+        gwb_name: The name of the GWB signal in the PTA.
+        lfcore: A la_forge.core.Core object for noise marginalization.
+        max_like_params: The maximum likelihood parameters for the PTA.
+        freqs: The frequencies of the PTA.
+        npairs: The number of pulsar pairs in the PTA.
+        pair_names: A list of the names of the pulsar pairs.
+        norfs: The number of overlap reduction functions.
+        orf_design_matrix: The design matrix for the ORFs.
+        orf_names: The names of the ORFs.
+        nmos_iterations: A dictionary of the NMOS iterations.
+    """
+
+    def __init__(self, psrs, pta, gwb_name='gw', core_path=None, core=None,  
                  chain_path=None, chain=None, param_names=None, 
                  orfs=['hd'], orf_names=None, max_chunk=300):
+        """Initializes the OptimalStatistic object.
+
+        There are many ways to initialize the OptimalStatistic object, and most
+        parameters are optional. The most basic way to initialize the object is to
+        call this initializer with a list of pulsars, a PTA object, and a gwb_name. 
+        You may also need to use the set_chain_params() and set_orf() functions to
+        set the MCMC chains and ORFs respectively. For convienence, the parameters
+        for these functions are also available here in the initializer.
+
+        For info on the corepath, core, chain_path, chain, and params_names check
+        documentation of OptimalStatistic.set_chain_params()
+        
+        For info on the orfs, and orf_names check documentation of OptimalStatistic.set_orf()
+
+        Args:
+            psrs (list): A list of enterprise.pulsar.BasePulsar objects.
+            pta (enterprise.signals.signal_base.PTA): A PTA object.
+            gwb_name (str): The name of the GWB in the PTA object. Defaults to 'gw'.
+            corepath (str, optional): The location of a pre-saved Core object.
+            core (la_forge.core.Core, optional): A la_forge.core.Core object.
+            chain_path (str, optional): The location of an PTMCMC chain.
+            chain (np.ndarray, optional): The chain.
+            param_names (_type_, optional): _description_. Defaults to None.
+            orfs (list, optional): _description_. Defaults to ['hd'].
+            orf_names (_type_, optional): _description_. Defaults to None.
+            max_chunk (int, optional): _description_. Defaults to 300.
+
+        Raises:
+            TypeError: _description_
+            TypeError: _description_
+            TypeError: _description_
+        """
         
         # Order of psrs needs to be the same as the one given to pta
         if type(pta) == ent_sig.signal_base.PTA:
@@ -45,7 +98,7 @@ class OptimalStatistic:
         self.gwb_name = gwb_name
         
         self.lfcore, self.max_like_params = None, None
-        self.set_chain_params(core, corepath, chain_path, chain, param_names)
+        self.set_chain_params(core, core_path, chain_path, chain, param_names)
 
         self.freqs = utils.get_pta_frequencies(pta,gwb_name)
         self.nfreq = len(self.freqs) 
@@ -65,7 +118,7 @@ class OptimalStatistic:
         self._cache = {}
 
 
-    def set_chain_params(self, core=None, corepath=None, chain_path=None, 
+    def set_chain_params(self, core=None, core_path=None, chain_path=None, 
                          chain=None, param_names=None):
         """A method to add MCMC chains to an OSpluplus object. 
 
@@ -90,8 +143,8 @@ class OptimalStatistic:
         # core > corepath > chain_path > chain + param_names > chain
         if core is not None and type(core) == Core:
             self.lfcore = core
-        elif corepath is not None:
-            self.lfcore = Core(corepath=corepath)
+        elif core_path is not None:
+            self.lfcore = Core(corepath=core_path)
         elif chain_path is not None:
             self.lfcore = Core(chaindir=chain_path)
         elif chain is not None and param_names is not None:
@@ -216,6 +269,65 @@ class OptimalStatistic:
 
     def compute_OS(self, params=None, N=1, gamma=None, pair_covariance=True, 
                    return_pair_vals=True, use_tqdm=True):
+        """Compute the OS and its various modifications.
+
+        This is one of 2 main functions of the OptimalStatistic class. This function
+        can compute any flavor of the OS which uses broadband estimation (i.e. constructs
+        a single estimator for the whole spectrum). There are many forms in which you can
+        use this function, and checking the decision tree is best for determining exactly
+        what you might want and what parameters to set to accomplish that. The basic
+        usage of this function can be boiled down to the following:
+        If you want to compute a single iteration of the OS:
+            - supply a set of params and set N=1. By default, if params=None, this 
+              will compute the maximum likelihood OS.
+        If you want to compute the noise marginalized OS:
+            - ensure that the OptimalStatistiic object has a La forge core set 
+              (see OptimalStatistic.set_chain_params), and set N>1. 
+        If you want to compute the OS with pair covariance:
+            - simply set pair_covariance=True. This will also replace the covariance 
+              matrix, C, that gets returned.
+        If you are using a varied gamma CURN model, you can either:
+            - Set a particular gamma value for all NMOS iterations by setting gamma
+            - Or set gamma=None and the function will default to each iterations' gamma value
+        
+
+        Args:
+            params (dict, optional): A dictionary of key:value parameters. 
+                Defaults to maximum likelihood. Only used if N=1.
+            N (int): The number of NMOS iterations to run. If 1, uses params. Defaults to 1.
+            gamma (float, optional): The spectral index to use for analysis. If set to None,
+                this function first checks if gamma is in params, otherwise it will
+                assume the PTA model is a fixed gamma and take it from there. Defaults to None.
+            pair_covariance (bool): Whether to use pair covariance. Defaults to True.
+            return_pair_vals (bool): Whether to return the xi, rho, sig, C values. Defaults to True.
+            use_tqdm (bool): Whether to use a progress bar. Defaults to True.
+
+        Raises:
+            ValueError: If params is None and to la_forge core is set.
+            ValueError: If Noise Marginalization is attempted without a La forge core.
+            os_ex.NMOSInteruptError: If the noise marginalization iterations are interupted.
+
+        Returns:
+            Return values are very different depending on which options you choose.
+            Values marked with a * are floats while every other return is an np.array.
+            If N=1 and return_pair_vals=False:
+                - returns A2*, A2S*
+            If N=1 and return_pair_vals=True:
+                - returns xi, rho, sig, C, A2*, A2S*
+            If N>1 and return_pair_vals=False:
+                - returns A2, A2S, param_index
+            If N>1 and return_pair_vals=True:
+                - returns xi, rho, sig, C, A2, A2S, param_index
+            
+            A2 (np.ndarray/float) - The OS amplitude estimators at 1/yr
+            A2s (np.ndarray/float) - The 1-sigma uncertainties of A2
+            xi (np.ndarray) - The pair separations of the pulsars
+            rho (np.ndarray) - The pair correlated powers
+            sig (np.ndarray) - The pair uncertainties in rho
+            C (np.ndarray) - The pair covariance matrix (either a vector or matrix)
+            param_index (np.ndarray) - The index of the parameter vectors used in NM each iteration
+        """
+        # TODO: return gamma values used in some form as well!
         
         if N==1:
             if params is None and self.lfcore is None:
@@ -243,9 +355,9 @@ class OptimalStatistic:
             
             if return_pair_vals:
                 xi,_ = utils.compute_pulsar_pair_separations(self.psrs, self._pair_idx)
-                return xi,rho,sig,C,A2,A2s
+                return xi, rho, sig, C, A2, A2s
             else:
-                return A2,A2s
+                return A2, A2s
         
         # Noise marginalized            
         if self.lfcore is None:
@@ -287,7 +399,8 @@ class OptimalStatistic:
                     self.nmos_iterations['C'].append(C)
 
         except Exception as e:
-            msg = 'Stopping NMOS iterations. Calculated values are can be found in OSplusplus.nmos_iterations.'
+            msg = 'Stopping NMOS iterations. Calculated values are can be found \
+                   in OptimalStatistic.nmos_iterations.'
             raise os_ex.NMOSInteruptError(msg) from e
 
         
@@ -300,14 +413,70 @@ class OptimalStatistic:
             rho = np.array( self.nmos_iterations['rho'] )
             sig = np.array( self.nmos_iterations['sig'] )
             C = np.array( self.nmos_iterations['C'] )
-            return np.array( xi,rho,sig,C,A2,A2s,param_index )
+            return xi, rho, sig, C, A2, A2s, param_index
 
         return A2, A2s, param_index
 
 
     def compute_PFOS(self, params=None, N=1, pair_covariance=True, narrowband=False,
                      return_pair_vals=True, use_tqdm=True):
+        """Compute the PFOS and its various modifications.
+
+        This is one of 2 main functions of the OptimalStatistic class. This function
+        can computes the different flavors of the PFOS (i.e. a free-spectrum search). 
+        There are many forms in which you can use this function, and checking the 
+        decision tree is best for determining exactly what you might want and what 
+        parameters to set to accomplish that. The basic usage of this function can 
+        be boiled down to the following:
+        If you want to compute a single iteration of the PFOS:
+            - supply a set of params and set N=1. By default, if params=None, this 
+              will compute the maximum likelihood PFOS.
+        If you want to compute the noise marginalized PFOS:
+            - ensure that the OptimalStatistiic object has a La forge core set 
+              (see OptimalStatistic.set_chain_params), and set N>1. 
+        If you want to compute the PFOS with pair covariance:
+            - simply set pair_covariance=True. This will also replace the covariance 
+              matrix, C, that gets returned.
+        If you are using a varied gamma CURN model, you can either:
+            - Set a particular gamma value for all NM PF OS iterations by setting gamma
+            - Or set gamma=None and the function will default to each iterations' gamma value
         
+
+        Args:
+            params (dict, optional): A dictionary of key:value parameters. 
+                Defaults to maximum likelihood. Only used if N=1.
+            N (int): The number of NM PF OS iterations to run. If 1, uses params. Defaults to 1.
+            pair_covariance (bool): Whether to use pair covariance. Defaults to True.
+            narrowband (bool): Whether to use the narrowband-normalized PFOS instead of
+                the default broadband-normalized PFOS. Defaults to False.
+            return_pair_vals (bool): Whether to return the xi, rhok, sigk, Ck values. Defaults to True.
+            use_tqdm (bool): Whether to use a progress bar. Defaults to True.
+
+        Raises:
+            ValueError: If params is None and to la_forge core is set.
+            ValueError: If Noise Marginalization is attempted without a La forge core.
+            os_ex.NMOSInteruptError: If the noise marginalization iterations are interupted.
+
+        Returns:
+            Return values are very different depending on which options you choose.
+            All values are np.ndarrays.
+            If N=1 and return_pair_vals=False:
+                - returns Sk, Sks
+            If N=1 and return_pair_vals=True:
+                - returns xi, rhok, sigk, Ck, Sk, Sks
+            If N>1 and return_pair_vals=False:
+                - returns Sk, Sks, param_index
+            If N>1 and return_pair_vals=True:
+                - returns xi, rhok, sigk, Ck, Sk, Sks, param_index
+            
+            Sk (np.ndarray) - The PFOS S(f_k) [yr^2] for each frequency number k
+            Sks (np.ndarray) - The 1-sigma uncertainties for Sk
+            xi (np.ndarray) - The pair separations of the pulsars
+            rhok (np.ndarray) - The pair correlated PSD for each frequency number k
+            sigk (np.ndarray) - The pair uncertainties in rhok
+            Ck (np.ndarray) - The pair covariance matrix for each frequency number k
+            param_index (np.ndarray) - The index of the parameter vectors used in each NM iteration
+        """
         if N==1:
             if params is None and self.lfcore is None:
                 msg = "No parameters given and no chain files to default to!"
@@ -364,7 +533,7 @@ class OptimalStatistic:
                     self.nmos_iterations['Ck'].append(Ck)
 
         except Exception as e:
-            msg = 'Stopping NMOS iterations. Calculated values are can be found in OSplusplus.nmos_iterations.'
+            msg = 'Stopping NMOS iterations. Calculated values are can be found in Optimal_statistic.nmos_iterations.'
             raise os_ex.NMOSInteruptError(msg) from e
 
         
@@ -564,7 +733,7 @@ class OptimalStatistic:
     def _compute_rho_sig(self, X, Z, phihat):
         """Compute the rho_ab, sigma_ab correlation and uncertainties
 
-        For Internal Use of the OSplusplus. Users are not recommended to use this!
+        For Internal Use of the OptimalStatistic. Users are not recommended to use this!
 
         This method calculates the rho_ab and sigma_ab for each pulsar pair using
         the OS' X, Z and phihat matrix products. Check Appendix A from 
@@ -595,7 +764,7 @@ class OptimalStatistic:
     def _compute_rhok_sigk(self, X, Z, phi, narrowband):
         """Compute the rho_ab(f_k), sigma_ab(f_k), and normalization_ab(f_k)
 
-        For Internal Use of the OSplusplus. Users are not recommended to use this!
+        For Internal Use of the OptimalStatistic. Users are not recommended to use this!
 
         This method calculates the rho_ab(f_k), sigma_ab(f_k), normalization_ab(f_k) 
         for each pulsar pair at each PTA frequency. Details of this implementation
