@@ -174,7 +174,7 @@ class OptimalStatistic:
             'monopole' - Monopole
             'gw_dipole' - Gravitational wave dipole
             'gw_monopole' - Gravitational wave monopole
-            'st' - Scalar transverse
+            'st' - Scalar tensor
 
         Args:
             orfs (list, optional): An ORF string, list of strings, or function. 
@@ -188,6 +188,8 @@ class OptimalStatistic:
             NameError: If a pre-defined ORF is not found.
             TypeError: If the user-supplied ORF does not have correct format. 
         """
+        # TODO: Better utilize the names of the ORFs
+        
         if not hasattr(orfs, '__getitem__'):
             orfs = [orfs]
         elif type(orfs) == str:
@@ -233,7 +235,7 @@ class OptimalStatistic:
                     name = 'GW_Monopole' if name is None else name
                 elif orf.lower() == 'st':
                     cur_orf = model_orfs.st_orf
-                    name = 'Scalar transpose' if name is None else name
+                    name = 'Scalar tensor' if name is None else name
                 else:
                     msg = f"Unknown ORF name: '{orf}'. Check the documentation " +\
                            "for pre-programmed ORFs or supply your own."

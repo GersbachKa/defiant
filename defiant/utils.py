@@ -288,7 +288,7 @@ def binned_pair_correlations(xi, rho, sig, bins=10, orf='hd'):
         'monopole' - Monopole
         'gw_dipole' - Gravitational wave dipole
         'gw_monopole' - Gravitational wave monopole
-        'st' - Scalar transverse
+        'st' - Scalar tensor
 
     Args:
         xi (numpy.ndarray): A vector of pulsar pair separations
@@ -364,7 +364,7 @@ def orf_xi(xi, orf='hd'):
         'monopole' - Monopole
         'gw_dipole' - Gravitational wave dipole
         'gw_monopole' - Gravitational wave monopole
-        'st' - Scalar transverse
+        'st' - Scalar tensor
 
     Args:
         xi (numpy.ndarray or float): A vector or float of pulsar pair separation(s)
@@ -418,7 +418,7 @@ def calculate_mean_sigma_for_MCOS(xi, A2, A2_cov, orfs=['hd','dipole','monopole'
         'monopole' - Monopole
         'gw_dipole' - Gravitational wave dipole
         'gw_monopole' - Gravitational wave monopole
-        'st' - Scalar transverse
+        'st' - Scalar tensor
 
     Args:
         xi (numpy.ndarray): A vector of pulsar pair separations
@@ -439,7 +439,6 @@ def calculate_mean_sigma_for_MCOS(xi, A2, A2_cov, orfs=['hd','dipole','monopole'
         mod_vals.append(np.sum([a*o for a,o in zip(A2,orf_mods)],axis=0))
 
     return np.mean(mod_vals,axis=0), np.std(mod_vals,axis=0)
-
 
 
 def uncertainty_sample(A2,A2s,pfos=False,mcos=False,n_usamples=100):
@@ -522,10 +521,36 @@ def uncertainty_sample(A2,A2s,pfos=False,mcos=False,n_usamples=100):
 
             all_A2 = np.zeros((nm_iter*n_usamples))
             for i in range(nm_iter):
-                mv_norm = np.random.normal(A2[i,:],A2s[i,:],size=(n_usamples))
-                all_A2[i*n_usamples:(i+1)*n_usamples,:] = mv_norm
+                norm = np.random.normal(A2[i],A2s[i],size=(n_usamples))
+                all_A2[i*n_usamples:(i+1)*n_usamples] = norm
     
     return all_A2
 
             
+def clip_covariance(cov, eig_thresh=1e-30):
+    """A function to clip the small or negative eigenvalues of a covariance matrix
+
+    This function is to fix some minor numerical problems with some covariance matrices
+    by clipping negative and very small eigenvalues and setting them to some threshold.
+    If the covariance matrix is already postive definite, this function will return the
+    original matrix.
+
+    Args:
+        cov (np.ndarray): The covariance matrix to fix
+        eig_thresh (float): The threshold value of the eigenvalues to clip. Defaults to 1e-30.
+
+    Returns:
+        cov: The clipped covariance matrix
+    """
+    e_vals,e_vec = np.linalg.eigh(cov)
+    if np.any(e_vals<eig_thresh):
+        e_vals[e_vals<eig_thresh] = eig_thresh
+        new_cov = e_vec@np.diag(e_vals)@np.linalg.pinv(e_vec)
+
+        if np.any(np.linalg.eigvals(new_cov)<0):
+            raise ValueError('Covariance matrix is still not positive definite! Clipping is too small!')
+
+        return new_cov
     
+    return cov
+
