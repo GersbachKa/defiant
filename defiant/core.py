@@ -67,15 +67,17 @@ class OptimalStatistic:
             core (la_forge.core.Core, optional): A la_forge.core.Core object.
             chain_path (str, optional): The location of an PTMCMC chain.
             chain (np.ndarray, optional): The chain.
-            param_names (_type_, optional): _description_. Defaults to None.
-            orfs (list, optional): _description_. Defaults to ['hd'].
-            orf_names (_type_, optional): _description_. Defaults to None.
-            max_chunk (int, optional): _description_. Defaults to 300.
+            param_names (str or list, optional): The names of the chain parameters.
+            orfs (list, optional): An orf name or function or list of orf names or functions. 
+                Defaults to ['hd'].
+            orf_names (str or list, optional): The names of the corresponding orfs. Set to None
+                    for default names.
+            max_chunk (int, optional): The number of allowed simultaneous matrix products to compute. 
+                Defaults to 300.
 
         Raises:
-            TypeError: _description_
-            TypeError: _description_
-            TypeError: _description_
+            TypeError: If the PTA object is not of type 'enterprise.signals.signal_base.PTA'.
+            TypeError: If the pulsars in the psrs list are not a list or of type 'enterprise.pulsar.BasePulsar'.
         """
         
         # Order of psrs needs to be the same as the one given to pta
@@ -189,7 +191,7 @@ class OptimalStatistic:
             TypeError: If the user-supplied ORF does not have correct format. 
         """
         # TODO: Better utilize the names of the ORFs
-        
+
         if not hasattr(orfs, '__getitem__'):
             orfs = [orfs]
         elif type(orfs) == str:
