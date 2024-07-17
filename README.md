@@ -42,10 +42,8 @@ There are many optional parameters upon instancing which you can use to skip som
 OS_obj.set_chain_params(core=lfcore)
 ```
 
-Next and finally, we need to decide on which version of the Optimal Statistic you run. There are many options and they can all work together. A 
-
-
-
-
+Next and finally, we need to decide on which version of the Optimal Statistic you run. There are many options and they can all work together. If you want a fun, interactive way to figure out which version to run, check the [defiant.fun.what_kind_of_OS_are_you()](https://github.com/GersbachKa/defiant/blob/main/defiant/fun.py) function! If you'd rather a less silly way, you can check the DEFIANT choice tree below:
 
 ![image](defiant_OS_choice_tree.png)
+
+Once you've decided on an OS version to run, check how to run that code using the choice tree or [what_kind_of_OS_are_you()](https://github.com/GersbachKa/defiant/blob/main/defiant/fun.py) and run it! There are a few options that you might want to be aware of, specifically `return_pair_vals` which, if set to false, will not return pair-wise correlated values (the intermediate data products of the OS). This can be helpful in cases where you use noise marginalization and pair covariance as storing each covariance matrix can be memory expensive.
