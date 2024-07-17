@@ -313,6 +313,7 @@ class OptimalStatistic:
 
         Returns:
             Return values are very different depending on which options you choose.
+            
             Values marked with a * are floats while every other return is an np.array.
             If N=1 and return_pair_vals=False:
                 - returns A2*, A2S*
@@ -577,7 +578,7 @@ class OptimalStatistic:
         X = np.zeros( shape = ( self.npsr, 2*self.nfreq ) ) # An array of vectors
         Z = np.zeros( shape = ( self.npsr, 2*self.nfreq, 2*self.nfreq ) ) # An array of matrices
 
-        for a,psr_signal in enumerate(self.pta):
+        for a,psr_signal in enumerate(self.pta._signalcollections):
             # Need residuals r, GWB Fourier design F, and pulsar design matrix T = [M F]
             r = psr_signal._residuals
             F = psr_signal[self.gwb_name].get_basis(params)
