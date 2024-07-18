@@ -24,7 +24,8 @@ class OptimalStatistic:
     This class is designed in such a way to be able to combine all of the various
     generalizations of the Optimal Statistic into a single, cohesive class. This class
     can be made to compute any of the froms shown in the defiant choice tree in the 
-    documentation of defiant.
+    documentation of defiant. 
+    NOTE: This class does not currently support PTAs with varied white noise parameters
 
     Attributes:
         pta: The enterprise.signals.signal_base.PTA object for the pulsar timing array.
@@ -53,6 +54,7 @@ class OptimalStatistic:
         You may also need to use the set_chain_params() and set_orf() functions to
         set the MCMC chains and ORFs respectively. For convienence, the parameters
         for these functions are also available here in the initializer.
+        NOTE: This class does not currently support PTAs with varied white noise parameters
 
         For info on the corepath, core, chain_path, chain, and params_names check
         documentation of OptimalStatistic.set_chain_params()
@@ -79,8 +81,6 @@ class OptimalStatistic:
             TypeError: If the PTA object is not of type 'enterprise.signals.signal_base.PTA'.
             TypeError: If the pulsars in the psrs list are not a list or of type 'enterprise.pulsar.BasePulsar'.
         """
-        
-        # Order of psrs needs to be the same as the one given to pta
         if type(pta) == ent_sig.signal_base.PTA:
             self.pta = pta
         else:
@@ -116,8 +116,17 @@ class OptimalStatistic:
         self.nmos_iterations = {}
 
         self._max_chunk = max_chunk
-
+        
+        # Check for marginalizing timing model
+        self._marginalizing_timing_model = False
+        for s in self.pta._signalcollections[0].signals:
+            if 'marginalizing linear timing model' in s.signal_name:
+                self._marginalizing_timing_model = True
+        
+        # Pre-cache matrix quantities
         self._cache = {}
+        self._compute_cached_matrices()
+        
 
 
     def set_chain_params(self, core=None, core_path=None, chain_path=None, 
@@ -555,6 +564,49 @@ class OptimalStatistic:
     
         return Sk, Sks, param_index
     
+    def _compute_cached_matrices(self):
+        """A function to compute the constant valued matrices used in the OS.
+
+        This function will calculate the following matrix product, which are constant
+        for any parameter values given to the PTA.
+
+        if using the marginalizing timing model:
+            - FNr, FNF
+        if using a linearized timing model:
+            - FNr, FNF, FNT, TNT, TNr
+        """
+        all_FNr = []
+        all_FNF = []
+        if not self._marginalizing_timing_model:
+            all_FNT = []
+            all_TNT = []
+            all_TNr = []
+
+        for psr_signal in self.pta._signalcollections:
+            r = psr_signal._residuals
+            F = psr_signal[self.gwb_name].get_basis()
+            N = psr_signal.get_ndiag()
+
+            FNr = N.solve(r,F) # F^T @ N^{-1} @ r
+            all_FNr.append(FNr)
+            FNF = N.solve(F,F) # F^T @ N^{-1} @ F
+            all_FNF.append(FNF)
+            if not self._marginalizing_timing_model:
+                T = psr_signal.get_basis()
+                TNT = psr_signal.get_TNT()
+                all_TNT.append(TNT)
+                FNT = N.solve(T,F) # F^T @ N^{-1} @ T
+                all_FNT.append(FNT)
+                TNr = N.solve(r,T) # T^T @ N^{-1} @ r
+                all_TNr.append(TNr)
+
+        self._cache['FNr'] = all_FNr
+        self._cache['FNF'] = all_FNF
+        if not self._marginalizing_timing_model:
+            self._cache['FNT'] = all_FNT
+            self._cache['TNT'] = all_TNT
+            self._cache['TNr'] = all_TNr
+
 
     def _compute_XZ(self, params):
         """A function to quickly calculate the OS' matrix quantities
@@ -563,46 +615,41 @@ class OptimalStatistic:
         of Pol, Taylor, Romano, 2022: (https://arxiv.org/abs/2206.09936). X and Z
         can be represented as X = F^T @ P^{-1} @ r and Z = F^T @ P^{-1} @ F.
 
+        This function will change how P^{-1} is calculated depending on if you are 
+        using a linearized timing model (i.e. replace all T with F).
+        
         Args:
             params (dict): A dictionary containing the parameter name:value pairs for the PTA
-            use_cache (bool): Whether to use cached values for constant matrix products.
 
         Returns:
             (np.array, np.array): A tuple of X and Z. X is an array of vectors for each pulsar 
                 (N_pulsar x 2N_frequency). Z is an array of matrices for each pulsar 
                 (N_pulsar x 2N_frequency x 2N_frequency)
         """
-        # TODO: Deal with caching values. Which matrix products can be cached between
-        # parameter changes?
-
         X = np.zeros( shape = ( self.npsr, 2*self.nfreq ) ) # An array of vectors
         Z = np.zeros( shape = ( self.npsr, 2*self.nfreq, 2*self.nfreq ) ) # An array of matrices
 
         for a,psr_signal in enumerate(self.pta._signalcollections):
-            # Need residuals r, GWB Fourier design F, and pulsar design matrix T = [M F]
-            r = psr_signal._residuals
-            F = psr_signal[self.gwb_name].get_basis(params)
-            T = psr_signal.get_basis(params)
+            phiinv = np.diag(psr_signal.get_phiinv(params))
 
-            # Used in creating P^{-1}
-            # Need N, use .solve() for inversions
-            N = psr_signal.get_ndiag(params)
+            FNr = self._cache['FNr'][a]
+            FNF = self._cache['FNF'][a]
+            if self._marginalizing_timing_model:
+                sigma = phiinv + FNF
+                sigma = sl.cho_factor(sigma)
 
-            # sigma = B^{-1} + T^T @ N^{-1} @ T
-            sigma = sl.cho_factor( np.diag(psr_signal.get_phiinv(params)) + psr_signal.get_TNT(params) )
+                X[a] = FNr - FNF @ sl.cho_solve(sigma, FNr)
+                Z[a] = FNF - FNF @ sl.cho_solve(sigma, FNF.T)
+            else:
+                FNT = self._cache['FNT'][a]
+                TNT = self._cache['TNT'][a]
+                TNr = self._cache['TNr'][a]
 
-            FNr = N.solve(r,F) # F^T @ N^{-1} @ r
-            TNr = N.solve(r,T) # T^T @ N^{-1} @ r
-            FNT = N.solve(T,F) # F^T @ N^{-1} @ T
-            FNF = N.solve(F,F) # F^T @ N^{-1} @ F
-        
-            # X = F^T @ P^{-1} @ r =
-            # F^T @ N^{-1} @ r - F^T @ N^{-1} @ T @ sigma^{-1} @ T^T @ N^{-1} @ r
-            X[a] = FNr - FNT @ sl.cho_solve(sigma, TNr)
+                sigma = phiinv + TNT
+                sigma = sl.cho_factor(sigma)
 
-            # Z = F^T @ P^{-1} @ F =
-            # F^T @ N^{-1} @ F - F^T @ N^{-1} @ T @ sigma^{-1} @ T^T @ N^{-1} @ F
-            Z[a] = FNF - FNT @ sl.cho_solve(sigma, FNT.T)
+                X[a] = FNr - FNT @ sl.cho_solve(sigma, TNr)
+                Z[a] = FNF - FNT @ sl.cho_solve(sigma, FNT.T)
 
         return X, Z
     
