@@ -389,7 +389,7 @@ class OptimalStatistic:
         
         self.nmos_iterations = {'A2':[],'A2s':[],'param_index':[]}
         if return_pair_vals:
-            xi = utils.compute_pulsar_pair_separations(self.psrs, self._pair_idx)
+            xi,_ = utils.compute_pulsar_pair_separations(self.psrs, self._pair_idx)
             self.nmos_iterations['xi'] = xi
             self.nmos_iterations['rho'] = []
             self.nmos_iterations['sig'] = []
@@ -439,7 +439,7 @@ class OptimalStatistic:
         param_index = np.array( self.nmos_iterations['param_index'] )
 
         if return_pair_vals:
-            xi = np.array( self.nmos_iterations['xi'] )
+            xi = self.nmos_iterations['xi']
             rho = np.array( self.nmos_iterations['rho'] )
             sig = np.array( self.nmos_iterations['sig'] )
             C = np.array( self.nmos_iterations['C'] )
@@ -537,7 +537,7 @@ class OptimalStatistic:
                 
         self.nmos_iterations = {'Sk':[],'Sks':[],'param_index':[]}
         if return_pair_vals:
-            xi = utils.compute_pulsar_pair_separations(self.psrs, self._pair_idx)
+            xi,_ = utils.compute_pulsar_pair_separations(self.psrs, self._pair_idx)
             self.nmos_iterations['xi'] = xi
             self.nmos_iterations['rhok'] = []
             self.nmos_iterations['sigk'] = []
