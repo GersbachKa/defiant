@@ -356,11 +356,19 @@ class OptimalStatistic:
                 params = self.max_like_params
                 
             pars = utils.freespec_param_fix(params,self.gwb_name)
-            if gamma is None and self.gwb_name+'_gamma' in params:
-                gamma = params[self.gwb_name+'_gamma']
+
+            # Calculating the phihat
+            if gamma is not None:
+                # Set gamma
+                phihat = powerlaw(np.repeat(self.freqs,2), 0, gamma)
+            elif self.gwb_name+'_gamma' in pars:
+                # Varied gamma
+                g = pars[self.gwb_name+'_gamma']
+                phihat = powerlaw(np.repeat(self.freqs,2), 0, g)
             else:
-                gamma = utils.get_fixed_gwb_gamma(self.pta, self.gwb_name)
-            phihat = powerlaw(np.repeat(self.freqs,2), 0, gamma)
+                # Fixed gamma, not supplied
+                g = utils.get_fixed_gwb_gamma(self.pta, self.gwb_name)
+                phihat = powerlaw(np.repeat(self.freqs,2), 0, g)
             
             xi,_ = utils.compute_pulsar_pair_separations(self.psrs, self._pair_idx)
 
@@ -394,12 +402,20 @@ class OptimalStatistic:
                 params = {p:v for p,v in zip(self.lfcore.params,self.lfcore.chain[rand_i])}
                 
                 pars = utils.freespec_param_fix(params,self.gwb_name)
-                if gamma is None and self.gwb_name+'_gamma' in params:
-                    gamma = params[self.gwb_name+'_gamma']
-                else:
-                    gamma = utils.get_fixed_gwb_gamma(self.pta, self.gwb_name)
-                phihat = powerlaw(np.repeat(self.freqs,2), 0, gamma)
 
+                # Calculating the phihat
+                if gamma is not None:
+                    # Set gamma
+                    phihat = powerlaw(np.repeat(self.freqs,2), 0, gamma)
+                elif self.gwb_name+'_gamma' in pars:
+                    # Varied gamma
+                    g = pars[self.gwb_name+'_gamma']
+                    phihat = powerlaw(np.repeat(self.freqs,2), 0, g)
+                else:
+                    # Fixed gamma, not supplied
+                    g = utils.get_fixed_gwb_gamma(self.pta, self.gwb_name)
+                    phihat = powerlaw(np.repeat(self.freqs,2), 0, g)
+                
                 rho,sig,C,A2,A2s = self._compute_os_iteration(pars, phihat, 
                                                         pair_covariance, False)
 
@@ -413,8 +429,8 @@ class OptimalStatistic:
                     self.nmos_iterations['C'].append(C)
 
         except Exception as e:
-            msg = 'Stopping NMOS iterations. Calculated values are can be found \
-                   in OptimalStatistic.nmos_iterations.'
+            msg = 'Stopping NMOS iterations. Calculated values are can be found '+\
+                  'in OptimalStatistic.nmos_iterations.'
             raise os_ex.NMOSInteruptError(msg) from e
 
         
@@ -547,7 +563,8 @@ class OptimalStatistic:
                     self.nmos_iterations['Ck'].append(Ck)
 
         except Exception as e:
-            msg = 'Stopping NMOS iterations. Calculated values are can be found in Optimal_statistic.nmos_iterations.'
+            msg = 'Stopping NMOS iterations. Calculated values are can be found in '+\
+                  'Optimal_statistic.nmos_iterations.'
             raise os_ex.NMOSInteruptError(msg) from e
 
         
@@ -564,6 +581,7 @@ class OptimalStatistic:
     
         return Sk, Sks, param_index
     
+
     def _compute_cached_matrices(self):
         """A function to compute the constant valued matrices used in the OS.
 
