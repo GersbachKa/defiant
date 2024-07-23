@@ -648,26 +648,36 @@ class OptimalStatistic:
         Z = np.zeros( shape = ( self.npsr, 2*self.nfreq, 2*self.nfreq ) ) # An array of matrices
 
         for a,psr_signal in enumerate(self.pta._signalcollections):
-            phiinv = np.diag(psr_signal.get_phiinv(params))
+            phiinv = psr_signal.get_phiinv(params)
+            if phiinv.ndim == 1:
+                phiinv = np.diag(psr_signal.get_phiinv(params))
 
             FNr = self._cache['FNr'][a]
             FNF = self._cache['FNF'][a]
             if self._marginalizing_timing_model:
                 sigma = phiinv + FNF
-                sigma = sl.cho_factor(sigma)
+                cf = sl.cho_factor(sigma)
 
-                X[a] = FNr - FNF @ sl.cho_solve(sigma, FNr)
-                Z[a] = FNF - FNF @ sl.cho_solve(sigma, FNF.T)
+                try:
+                    X[a] = FNr - FNF @ sl.cho_solve(cf, FNr)
+                    Z[a] = FNF - FNF @ sl.cho_solve(cf, FNF.T)
+                except np.linalg.LinAlgError:
+                    X[a] = FNr - FNF @ np.linalg.solve(sigma, FNr)
+                    Z[a] = FNF - FNF @ np.linalg.solve(sigma, FNF.T)
             else:
                 FNT = self._cache['FNT'][a]
                 TNT = self._cache['TNT'][a]
                 TNr = self._cache['TNr'][a]
 
                 sigma = phiinv + TNT
-                sigma = sl.cho_factor(sigma)
+                cf = sl.cho_factor(sigma)
 
-                X[a] = FNr - FNT @ sl.cho_solve(sigma, TNr)
-                Z[a] = FNF - FNT @ sl.cho_solve(sigma, FNT.T)
+                try:
+                    X[a] = FNr - FNT @ sl.cho_solve(cf, TNr)
+                    Z[a] = FNF - FNT @ sl.cho_solve(cf, FNT.T)
+                except np.linalg.LinAlgError:
+                    X[a] = FNr - FNT @ np.linalg.solve(sigma, TNr)
+                    Z[a] = FNF - FNT @ np.linalg.solve(sigma, FNT.T)
 
         return X, Z
     

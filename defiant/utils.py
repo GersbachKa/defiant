@@ -531,16 +531,18 @@ def clip_covariance(cov, eig_thresh=1e-30):
     """A function to clip the small or negative eigenvalues of a covariance matrix
 
     This function is to fix some minor numerical problems with some covariance matrices
-    by clipping negative and very small eigenvalues and setting them to some threshold.
-    If the covariance matrix is already postive definite, this function will return the
-    original matrix.
+    by clipping negative and very small eigenvalues of a correlation matrix made from
+    the given covariance matrix and setting them to the specified threshold. If the 
+    covariance matrix is already postive definite, this function will return the
+    original matrix. 
 
     Args:
         cov (np.ndarray): The covariance matrix to fix
-        eig_thresh (float): The threshold value of the eigenvalues to clip. Defaults to 1e-30.
+        eig_thresh (float): The threshold value of the correlation matrix eigenvalues 
+            to clip. Defaults to 1e-10.
 
     Returns:
-        cov: The clipped covariance matrix
+        np.ndarray: The clipped covariance matrix
     """
     e_vals,e_vec = np.linalg.eigh(cov)
     if np.any(e_vals<eig_thresh):
