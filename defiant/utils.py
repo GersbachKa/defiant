@@ -430,7 +430,7 @@ def calculate_mean_sigma_for_MCOS(xi, A2, A2_cov, orfs=['hd','dipole','monopole'
     Returns:
         (np.ndarray,np.ndarray): The corresponding mean and 1-sigma standard deviation.
     """
-    norm = multivariate_normal(mean=A2,cov=A2_cov)
+    norm = multivariate_normal(mean=A2,cov=A2_cov,allow_singular=True)
     rvs = norm.rvs(size=n_samples)
     orf_mods = [orf_xi(xi, o) for o in orfs]
 
@@ -539,14 +539,15 @@ def clip_covariance(cov, eig_thresh=1e-30):
     Args:
         cov (np.ndarray): The covariance matrix to fix
         eig_thresh (float): The threshold value of the correlation matrix eigenvalues 
-            to clip. Defaults to 1e-10.
+            to clip as a ratio of the largest. Defaults to 1e-10.
 
     Returns:
         np.ndarray: The clipped covariance matrix
     """
     e_vals,e_vec = np.linalg.eigh(cov)
-    if np.any(e_vals<eig_thresh):
-        e_vals[e_vals<eig_thresh] = eig_thresh
+    e_thr = eig_thresh*np.max(e_vals)
+    if np.any(e_vals<e_thr):
+        e_vals[e_vals<e_thr] = e_thr
         new_cov = e_vec@np.diag(e_vals)@np.linalg.pinv(e_vec)
 
         if np.any(np.linalg.eigvals(new_cov)<0):
