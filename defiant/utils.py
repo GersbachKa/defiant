@@ -2,6 +2,7 @@
 import numpy as np
 import scipy.linalg as sl
 from scipy.stats import multivariate_normal
+from scipy.linalg import cho_factor, cho_solve
 
 from .custom_exceptions import *
 
@@ -18,6 +19,9 @@ def linear_solve(X,C,r,method=None):
         - 'diagonal': Supplied C is the diagonal covariance matrix
         - 'exact': Use exact matrix inverses
         - 'pinv': Use pseudo matrix inverses
+        - 'cholesky': Use cholesky decomposition for forward substitution
+        - 'solve': Use numpy.linalg.solve for forward substitution
+        - 'woodbury': Use the Woodbury matrix identity to reduce condition number
 
     Args:
         X (ndarray): The design matrix (N x M)
@@ -27,12 +31,13 @@ def linear_solve(X,C,r,method=None):
 
     Raises:
         NameError: If the method name cannot be identified.
+        ValueError: If the method is 'woodbury' and the shape of C is not [2 x N_pairs x N_pairs]
 
     Returns:
         theta (ndarray): The solution vector theta (M x 1)
         cov (ndarray): The covariance matrix between linear elements (M x M)
     """
-    # Valid methods: exact, pinv, cholesky, Regularized SVD
+    # Valid methods: exact, pinv, diagonal
     # TODO: Implement other methods
 
     if method is None:
@@ -45,7 +50,7 @@ def linear_solve(X,C,r,method=None):
             # Assume the diagonal covariance
             method = 'diagonal'
 
-    if method.lower() in ['exact','pinv','diagonal']:
+    if method.lower() in ['exact','pinv','diagonal','solve','cholesky','woodbury']:
         
         if method.lower() == 'diagonal':
             fisher = X.T @ np.diag(1/C[:]) @ X
@@ -56,10 +61,39 @@ def linear_solve(X,C,r,method=None):
             fisher = (X.T @ Cinv @ X)
             dirty_map = (X.T @ Cinv @ r)
 
-        else:
+        elif method.lower() == 'pinv':
             Cinv = np.linalg.pinv(C)
             fisher = (X.T @ Cinv @ X)
             dirty_map = (X.T @ Cinv @ r)
+
+        elif method.lower() == 'solve':
+            fisher = (X.T @ np.linalg.solve(C,X))
+            dirty_map = (X.T @ np.linalg.solve(C,r))
+
+        elif method.lower() == 'cholesky':
+            cf = cho_factor(C)
+            fisher = X.T @ cho_solve(cf,X)
+            dirty_map = X.T @ cho_solve(cf,r)
+
+        elif method.lower() == 'woodbury':
+            # Woodbury method requires C to have shape [2 x N_pairs x N_pairs]
+            if C.shape[0] != 2 or C.shape[1] != C.shape[2]:
+                raise ValueError('Woodbury method requires C to have shape [2 x N_pairs x N_pairs]')
+            S = np.diag(1/np.diag(C[0]))
+            K = C[1]
+            I_n = np.eye(S.shape[0])
+        
+            ainv = np.diag(1/np.diag(S))
+            Kainv = K@ainv
+            cinv = ainv - ainv @ np.linalg.solve(I_n + Kainv, Kainv)
+
+            fisher = X.T @ cinv @ X
+            dirty_map = X.T @ cinv @ r 
+
+        else:
+            msg = f'Unknown method \'{method}\' for linear solving.'
+            raise NameError(msg)
+            
 
         if fisher.size>1:
             cov = np.linalg.pinv(fisher)

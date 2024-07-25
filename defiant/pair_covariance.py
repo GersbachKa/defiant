@@ -8,12 +8,64 @@ from itertools import combinations, combinations_with_replacement
 from tqdm import tqdm
 
 def _compute_pair_covariance(Z, phi1, phi2, orf, norm_ab, a2_est, use_tqdm, max_chunk):
+    """A function to compute the pulsar pair covariance matrix. Not intended for user use.
+
+    This function computes the pulsar pair covariance matrix as described in
+    Gersbach et al. 2024. This function uses two forms of phi so as to be agnostic
+    to both the OS and PFOS. phi1 is intended to be either \hat{\phi} in the case
+    of the OS and \tilde{\phi}(f_k) in the case of the PFOS. phi2 is intended to be
+    \hat{\phi} in the case of the OS and \Phi(f_k) in the case of the PFOS. Similarly
+    norm_ab represents the normalization of the pair-wise estimators. For the OS,
+    norm_ab is simply sig_ab. For the PFOS, norm_ab changes depending on if you
+    are using wideband or narrowband normalization.
+
+    Args:
+        Z (np.ndarray): An array of Z matrix products [N_pulsars x 2N_frequencies x 2N_frequencies]
+        phi1 (np.ndarray): An array of the spectral model [2N_frequencies] (See description)
+        phi2 (np.ndarray): A similar array of the spectral model [2N_frequencies] (See description)
+        orf (np.ndarray): A matrix of the ORF for each pair of pulsars [N_pulsars x N_pulsars]
+        norm_ab (np.ndarray): The normalization terms for each pulsar pair [N_pairs]
+        a2_est (float): The estimated amplitude of the GWB
+        use_tqdm (bool): Whether to use TQDM's progress bar
+        max_chunk (int): The maximum number of simultaneous matrix calculations
+
+    Returns:
+        np.ndarray: The pulsar pair covariance matrix [N_pairs x N_pairs]
+    """
     fact_c = _factored_pair_covariance(Z,phi1,phi2,orf,norm_ab,use_tqdm,max_chunk)
     return fact_c[0] + a2_est*fact_c[1] + a2_est**2*fact_c[2]
 
 
 def _compute_mcos_pair_covariance(Z, phi1, phi2, orf, design, rho_ab, sig_ab, 
                                   norm_ab, a2_est, use_tqdm, max_chunk):
+    """Compute the pulsar pair covariance matrix with the MCOS. Not intended for user use.
+
+    This function computes the pulsar pair covariance matrix with the MCOS as described in
+    Sardesai et al. 2023 and Gersbach et al. 2024. As was done in the first paper,
+    the pair covariance needs an estimated total correlated power in each pair.
+    We do that by first calculating the non-pair covariant MCOS and then using the 
+    resulting fraction of power in each process multiplied by the CURN amplitude 
+    as an estimate of the total correlated power. This function uses two forms of phi 
+    so as to be agnostic to both the OS and PFOS. phi1 is intended to be either 
+    \hat{\phi} in the case of the OS and \tilde{\phi}(f_k) in the case of the PFOS. 
+    phi2 is intended to be \hat{\phi} in the case of the OS and \Phi(f_k) in the 
+    case of the PFOS. Similarly, norm_ab represents the normalization of the 
+    pair-wise estimators. For the OS, norm_ab is simply sig_ab. For the PFOS, 
+    norm_ab changes depending on if you are using wideband or narrowband normalization.
+
+    Args:
+        Z (np.ndarray): An array of Z matrix products [N_pulsars x 2N_frequencies x 2N_frequencies]
+        phi1 (np.ndarray): An array of the spectral model [2N_frequencies] (See description)
+        phi2 (np.ndarray): A similar array of the spectral model [2N_frequencies] (See description)
+        orf (np.ndarray): A matrix of the ORF for each pair of pulsars [N_pulsars x N_pulsars]
+        norm_ab (np.ndarray): The normalization terms for each pulsar pair [N_pairs]
+        a2_est (float): The estimated amplitude of the GWB
+        use_tqdm (bool): Whether to use TQDM's progress bar
+        max_chunk (int): The maximum number of simultaneous matrix calculations
+
+    Returns:
+        np.ndarray: The pulsar pair covariance matrix [N_pairs x N_pairs]
+    """
     # MCOS w/ pair covariance - From Sardesai et al. 2023
     # Need to compute the a no-PC MCOS for amp estimates
     temp_c = np.square(sig_ab)
