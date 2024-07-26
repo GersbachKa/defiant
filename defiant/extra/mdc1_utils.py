@@ -72,7 +72,7 @@ def create_MDC1_like_psrs(gwb_amplitude=5e-14, gwb_gamma=13./3.,
     from libstempo import toasim as LT
 
     inj_params={}
-    seed = int(np.random.random()*2e30-1) if seed==None else int(seed)
+    seed = int(np.random.random()*2**31-1) if seed==None else int(seed)
 
     datadir = enterprise.__path__[0] + '/datafiles/mdc_open1/'
     parfiles = sorted(glob(datadir + '/*.par'))
