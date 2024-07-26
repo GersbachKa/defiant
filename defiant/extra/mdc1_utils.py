@@ -95,7 +95,7 @@ def create_MDC1_like_psrs(gwb_amplitude=5e-14, gwb_gamma=13./3.,
             seed+=1
 
             inj_params[f'{psr.name}_red_noise_gamma'] = irn_gamma
-            inj_params[f'{psr.name}_red_noise_log10_A'] = irn_amplitude
+            inj_params[f'{psr.name}_red_noise_log10_A'] = np.log10(irn_amplitude)
 
         ltpsrs.append(psr)
         
