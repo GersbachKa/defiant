@@ -26,19 +26,20 @@ def get_mdc1_psrs():
 
 
 def create_MDC1_like_psrs(gwb_amplitude=5e-14, gwb_gamma=13./3., 
-                          irn_amplitude=None, irn_gamma=13./3., irn_components=50,
+                          irn_amplitude=None, irn_gamma=13./3., irn_components=30,
                           toaerr=0.1, tspan=5.0, nfit=1, seed=None):
     """A function to create MDC1-like simulated datasets using user-specified parameters.
 
     This function will create a list of pulsars with observations once every 2 weeks 
-    for the number of years specified. The pulsars will have a gravitational wave 
-    background (GWB) injected with the specified amplitude and spectral index. 
-    Intrinsic red noise (IRN) can be injected into each pulsar with the specified 
-    amplitude and spectral index. The intrinsic red noise can either be set to the
-    same value in all pulsars (by giving irn_amplitude and irn_gamma single values)
-    or set to different values in each pulsar (by supplying arrays for irn_amplitude 
-    and irn_gamma). Additionally, the white noise will be set such that there is
-    only EFAC set at a constant 1 for all pulsars.
+    for the number of years specified using Libstempo's toasim module. The pulsars 
+    will have a gravitational wave background (GWB) injected with the specified 
+    amplitude and spectral index. Intrinsic red noise (IRN) can be injected into 
+    each pulsar with the specified amplitude and spectral index. The intrinsic red 
+    noise can either be set to the same value in all pulsars (by giving 
+    irn_amplitude and irn_gamma single values) or set to different values in 
+    each pulsar (by supplying arrays for irn_amplitude and irn_gamma). Additionally, 
+    the white noise will be set such that there is only EFAC set at a constant 1 
+    for all pulsars.
 
     Args:
         gwb_amplitude (float): The amplitude of the GWB (NOT LOG). Defaults to 5e-14.
