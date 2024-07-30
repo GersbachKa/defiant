@@ -1,8 +1,10 @@
 
 from .custom_exceptions import *
-from .utils import linear_solve
+from .utils import *
 
 import numpy as np
+
+from enterprise.signals.utils import powerlaw
 
 from itertools import combinations, combinations_with_replacement
 from tqdm import tqdm
@@ -17,7 +19,7 @@ def _compute_pair_covariance(Z, phi1, phi2, orf, norm_ab, a2_est, use_tqdm, max_
     \hat{\phi} in the case of the OS and \Phi(f_k) in the case of the PFOS. Similarly
     norm_ab represents the normalization of the pair-wise estimators. For the OS,
     norm_ab is simply sig_ab. For the PFOS, norm_ab changes depending on if you
-    are using wideband or narrowband normalization.
+    are using wideband or narrowband normalization. 
 
     Args:
         Z (np.ndarray): An array of Z matrix products [N_pulsars x 2N_frequencies x 2N_frequencies]
@@ -30,7 +32,7 @@ def _compute_pair_covariance(Z, phi1, phi2, orf, norm_ab, a2_est, use_tqdm, max_
         max_chunk (int): The maximum number of simultaneous matrix calculations
 
     Returns:
-        np.ndarray: The pulsar pair covariance matrix [N_pairs x N_pairs]
+        np.ndarray: The pulsar pair covariance matrix [2, N_pairs x N_pairs]
     """
     fact_c = _factored_pair_covariance(Z,phi1,phi2,orf,norm_ab,use_tqdm,max_chunk)
     return fact_c[0] + a2_est*fact_c[1] + a2_est**2*fact_c[2]
@@ -79,7 +81,7 @@ def _compute_mcos_pair_covariance(Z, phi1, phi2, orf, design, rho_ab, sig_ab,
     return fact_c[0] + fact_c[1] + fact_c[2]
 
 
-# Hidden function which directly calculates the amplitude-factored pair covariance matrix.
+# Hidden function which directly calculates the factored pair covariance matrix.
 # Exposed functions will call this, but users should avoid.
 def _factored_pair_covariance(Z, phi1, phi2, orf, norm_ab, use_tqdm, max_chunk):
     """Creates the GW amplitude factored pulsar pair covariance matrix.
@@ -92,13 +94,13 @@ def _factored_pair_covariance(Z, phi1, phi2, orf, norm_ab, use_tqdm, max_chunk):
 
     Args:
         Z (numpy.ndarray): A N_pulasr array of 2N_frequencies x 2N_frequencies Z matrices from the OS
-        phi1 (numpy.ndarray): A 2N_frequencies array of the estimator's spectral model
-        phi2 (numpy.ndarray): A 2N_frequencies array of the estimated spectral shape
+        phi1 (numpy.ndarray): A 2N_frequencies array of the estimator's normalized spectral model
+        phi2 (numpy.ndarray): A 2N_frequencies array of the unit spectral shape of the GWB
         orf (numpy.ndarray): A N_pulsar x N_pulsar matrix of the ORF (or correlated power) 
                 for each pair of pulsars
         norm_ab (numpy.ndarray): The N_pair array of normalizations of the pair-wise estimators 
-        use_tqdm (bool, optional): Whether to use TQDM's progress bar. Defaults to False.
-        max_chunk (int, optional): The maximum number of simultaneous matrix calculations. 
+        use_tqdm (bool): Whether to use TQDM's progress bar.
+        max_chunk (int): The maximum number of simultaneous matrix calculations. 
                 Works best between 100-1000 but depends on the computer. Defaults to 300.
 
     Raises:
@@ -133,36 +135,56 @@ def _factored_pair_covariance(Z, phi1, phi2, orf, norm_ab, use_tqdm, max_chunk):
     Zphi1Zphi2[a,b] = Zphi1[a] @ Zphi2[b]
     Zphi1Zphi2[b,a] = Zphi1[b] @ Zphi2[a]
 
+    # Create the progress bar
+    progress_bar = tqdm(total=len(PoP),desc='PC elements',
+                        ncols=80) if use_tqdm else None 
 
-    def case1(a,b,c,d): #(ab,cd)
+    # Define a lambda function for easy reading
+    mpt = lambda A,B: matrix_product_trace(A,B)
+
+    # Define the three cases for the pair covariance
+    def case1(a,b,c,d):             #(ab,cd)
         a0 = np.zeros_like(a)
         a2 = np.zeros_like(a)
-        a4 = orf[a,c]*orf[d,b] * np.einsum('ijk,ikj->i', Zphi1Zphi2[b,a], Zphi1Zphi2[c,d]) + \
-             orf[a,d]*orf[c,b] * np.einsum('ijk,ikj->i', Zphi1Zphi2[b,a], Zphi1Zphi2[d,c])
+        a4 = orf[a,c]*orf[d,b] * mpt(Zphi1Zphi2[b,a], Zphi1Zphi2[c,d]) + \
+             orf[a,d]*orf[c,b] * mpt(Zphi1Zphi2[b,a], Zphi1Zphi2[d,c])
         return [a0,a2,a4]
     
-    def case2(a,b,c): #(ab,ac)
+    def case2(a,b,c):               #(ab,ac)
         a0 = np.zeros_like(a)
-        a2 = orf[b,c]*np.einsum('ijk,ikj->i', Zphi1[b],Zphi1Zphi2[a,c])
-        a4 = orf[a,c]*orf[a,b] * np.einsum('ijk,ikj->i', Zphi1Zphi2[b,a], Zphi1Zphi2[c,a])
+        a2 = orf[b,c] *          mpt(Zphi1[b],        Zphi1Zphi2[a,c])
+        a4 = orf[a,c]*orf[a,b] * mpt(Zphi1Zphi2[b,a], Zphi1Zphi2[c,a])
         return [a0,a2,a4]
 
-    def case3(a,b): #(ab,ab)
-        a0 = np.einsum('ijk,ikj->i',Zphi1[b],Zphi1[a])
+    def case3(a,b):                 #(ab,ab)
+        a0 =               mpt(Zphi1[b],        Zphi1[a])
         a2 = np.zeros_like(a)
-        a4 = orf[a,b]**2 * np.einsum('ijk,ikj->i', Zphi1Zphi2[b,a], Zphi1Zphi2[b,a])
+        a4 = orf[a,b]**2 * mpt(Zphi1Zphi2[b,a], Zphi1Zphi2[b,a])
         return [a0,a2,a4]
 
-    
+    # --------------------------------------------------------------------------
+    # Chunking code
+    def chunker(idx1,idx2,a,b,c=None,d=None):
+        n_chunks = int(len(a)/max_chunk)+1
+        for i in range(n_chunks):
+            l,h = i*max_chunk,(i+1)*max_chunk
+
+            if (c is None) and (d is None):
+                temp = case3(a[l:h],b[l:h])
+            elif d is None:
+                temp = case2(a[l:h],b[l:h],c[l:h])
+            else:
+                temp = case1(a[l:h],b[l:h],c[l:h],d[l:h])
+
+            C_m[:,idx1[l:h],idx2[l:h]] = temp
+            C_m[:,idx2[l:h],idx1[l:h]] = temp
+
+            if use_tqdm: progress_bar.update(h-l)
+
+
     # --------------------------------------------------------------------------
     # Now lets calculate them!
     C_m = np.zeros((3,len(pairs_idx),len(pairs_idx)),dtype=np.float64)
-
-    if use_tqdm:
-        from tqdm import tqdm
-        ntot = len(PoP)
-        progress = tqdm(total=ntot,desc='Pairs of pairs',ncols=80)
-
 
     try: # This is used to close the progress bar if an exception occurs
 
@@ -172,50 +194,31 @@ def _factored_pair_covariance(Z, phi1, phi2, orf, norm_ab, use_tqdm, max_chunk):
         
         p_idx1,p_idx2 = PoP_idx[mask].T
         a,b,c,d = PoP[mask].T
-    
-        for i in range( int(len(a)/max_chunk)+1 ):
-            l,h = i*max_chunk,(i+1)*max_chunk
-            temp = case1(a[l:h],b[l:h],c[l:h],d[l:h])
-            C_m[:,p_idx1[l:h],p_idx2[l:h]] = temp
-            C_m[:,p_idx2[l:h],p_idx1[l:h]] = temp
-            if use_tqdm: progress.update(len(a[l:h]))
-    
 
+        chunker(p_idx1,p_idx2,a,b,c,d)
+    
+        
         # Case2: 1 matching pulsar----------------------------------------------
         mask = (psr_match[:,0] & ~psr_match[:,1]) # Check for (ab,ac)
         p_idx1,p_idx2 = PoP_idx[mask].T
         a,b,_,c = PoP[mask].T
 
-        for i in range( int(len(a)/max_chunk)+1 ):
-            l,h = i*max_chunk,(i+1)*max_chunk
-            temp = case2(a[l:h],b[l:h],c[l:h])
-            C_m[:,p_idx1[l:h],p_idx2[l:h]] = temp
-            C_m[:,p_idx2[l:h],p_idx1[l:h]] = temp
-            if use_tqdm: progress.update(len(a[l:h]))
+        chunker(p_idx1,p_idx2,a,b,c)
 
 
         mask = (~psr_inv_match[:,0] & psr_inv_match[:,1]) # Check for (ab,bc)
         p_idx1,p_idx2 = PoP_idx[mask].T
         b,a,_,c = PoP[mask].T # Index swap a with b
 
-        for i in range( int(len(a)/max_chunk)+1 ):
-            l,h = i*max_chunk,(i+1)*max_chunk
-            temp = case2(a[l:h],b[l:h],c[l:h])
-            C_m[:,p_idx1[l:h],p_idx2[l:h]] = temp
-            C_m[:,p_idx2[l:h],p_idx1[l:h]] = temp
-            if use_tqdm: progress.update(len(a[l:h]))
+        chunker(p_idx1,p_idx2,a,b,c)
 
 
         mask = (~psr_match[:,0] & psr_match[:,1]) # Check for (ab,cb)
         p_idx1,p_idx2 = PoP_idx[mask].T
         b,a,c,_ = PoP[mask].T # Index swap a with b
 
-        for i in range( int(len(a)/max_chunk)+1 ):
-            l,h = i*max_chunk,(i+1)*max_chunk
-            temp = case2(a[l:h],b[l:h],c[l:h])
-            C_m[:,p_idx1[l:h],p_idx2[l:h]] = temp
-            C_m[:,p_idx2[l:h],p_idx1[l:h]] = temp
-            if use_tqdm: progress.update(len(a[l:h]))
+        chunker(p_idx1,p_idx2,a,b,c)
+
 
         # Case3: 2 matching pulsars---------------------------------------------
         mask = psr_match[:,0] & psr_match[:,1] # Check for (ab,ab)
@@ -223,21 +226,43 @@ def _factored_pair_covariance(Z, phi1, phi2, orf, norm_ab, use_tqdm, max_chunk):
         p_idx1,p_idx2 = PoP_idx[mask].T
         a,b,_,_ = PoP[mask].T 
 
-        for i in range( int(len(a)/max_chunk)+1 ):
-            l,h = i*max_chunk,(i+1)*max_chunk
-            temp = case3(a[l:h],b[l:h])
-            C_m[:,p_idx1[l:h],p_idx2[l:h]] = temp
-            C_m[:,p_idx2[l:h],p_idx1[l:h]] = temp
-            if use_tqdm: progress.update(len(a[l:h])) 
+        chunker(p_idx1,p_idx2,a,b)
+
 
     except Exception as e:
-        if use_tqdm: progress.close()
+        if use_tqdm: progress_bar.close()
         msg = 'Exception occured during pair covariance creation!'
         raise PCOSInteruptError(msg) from e
         
-    if use_tqdm: progress.close()
+    if use_tqdm: progress_bar.close()
 
     # Include the final sigmas
     C_m[:] *= np.outer(norm_ab,norm_ab)
 
     return C_m
+
+
+def matrix_product_trace(A,B):
+    """Calculates the trace of the matrix product of two matrices.
+
+    returns tr(A @ B), supports vectorized operations. Be careful when giving
+    large chunks of matrices as it can be memory intensive.
+
+    Args:
+        A (numpy.ndarray): A matrix or a stack of n matrices [(n x) M x O]
+        B (numpy.ndarray): A matrix or a stack of n matrices [(n x) O x M]
+
+    Raises:
+        ValueError: If A and B are not 2D or 3D arrays
+    
+    Returns:
+        float: The trace of the matrix product of A and B
+    """
+    if A.ndim == 2 and B.ndim == 2:
+        return np.einsum('ij,ji->', A, B)
+    
+    elif A.ndim == 3 and B.ndim == 3:
+        return np.einsum('ijk,ikj->i', A, B)
+
+    else:
+        raise ValueError('A and B must be 2D or 3D arrays!')
