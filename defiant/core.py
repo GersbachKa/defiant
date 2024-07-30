@@ -280,7 +280,7 @@ class OptimalStatistic:
         self.orf_design_matrix = self.orf_design_matrix.T
         
 
-    def compute_OS(self, params=None, N=1, gamma=None, pair_covariance=True, 
+    def compute_OS(self, params=None, N=1, gamma=None, pair_covariance=False, 
                    return_pair_vals=True, use_tqdm=True):
         """Compute the OS and its various modifications.
 
@@ -311,7 +311,7 @@ class OptimalStatistic:
             gamma (float, optional): The spectral index to use for analysis. If set to None,
                 this function first checks if gamma is in params, otherwise it will
                 assume the PTA model is a fixed gamma and take it from there. Defaults to None.
-            pair_covariance (bool): Whether to use pair covariance. Defaults to True.
+            pair_covariance (bool): Whether to use pair covariance. Defaults to False.
             return_pair_vals (bool): Whether to return the xi, rho, sig, C values. Defaults to True.
             use_tqdm (bool): Whether to use a progress bar. Defaults to True.
 
@@ -448,7 +448,7 @@ class OptimalStatistic:
         return A2, A2s, param_index
 
 
-    def compute_PFOS(self, params=None, N=1, pair_covariance=True, narrowband=False,
+    def compute_PFOS(self, params=None, N=1, pair_covariance=False, narrowband=False,
                      return_pair_vals=True, use_tqdm=True):
         """Compute the PFOS and its various modifications.
 
@@ -476,7 +476,7 @@ class OptimalStatistic:
             params (dict, optional): A dictionary of key:value parameters. 
                 Defaults to maximum likelihood. Only used if N=1.
             N (int): The number of NM PF OS iterations to run. If 1, uses params. Defaults to 1.
-            pair_covariance (bool): Whether to use pair covariance. Defaults to True.
+            pair_covariance (bool): Whether to use pair covariance. Defaults to False.
             narrowband (bool): Whether to use the narrowband-normalized PFOS instead of
                 the default broadband-normalized PFOS. Defaults to False.
             return_pair_vals (bool): Whether to return the xi, rhok, sigk, Ck values. Defaults to True.
@@ -587,43 +587,50 @@ class OptimalStatistic:
 
         This function will calculate the following matrix product, which are constant
         for any parameter values given to the PTA.
-
-        if using the marginalizing timing model:
-            - FNr, FNF
-        if using a linearized timing model:
+        The stored matrix products are:
             - FNr, FNF, FNT, TNT, TNr
+
+        Note: If the PTA is using the marginalizing timing model T will be replaced
+        with F_irn, where F is the fourier design matrix of GWB only, and F_irn is
+        the fourier design matrix of the full red noise.
         """
         all_FNr = []
         all_FNF = []
-        if not self._marginalizing_timing_model:
-            all_FNT = []
-            all_TNT = []
-            all_TNr = []
+        all_FNT = [] 
+        all_TNT = []
+        all_TNr = []
 
         for psr_signal in self.pta._signalcollections:
             r = psr_signal._residuals
             F = psr_signal[self.gwb_name].get_basis()
             N = psr_signal.get_ndiag()
+            T = psr_signal.get_basis()
 
-            FNr = N.solve(r,F) # F^T @ N^{-1} @ r
-            all_FNr.append(FNr)
-            FNF = N.solve(F,F) # F^T @ N^{-1} @ F
-            all_FNF.append(FNF)
-            if not self._marginalizing_timing_model:
-                T = psr_signal.get_basis()
-                TNT = psr_signal.get_TNT()
-                all_TNT.append(TNT)
-                FNT = N.solve(T,F) # F^T @ N^{-1} @ T
-                all_FNT.append(FNT)
+            if self._marginalizing_timing_model:
+                # Need to use own solving method for N
+                FNr = _solveD(N,r,F) # F^T @ N^{-1} @ r
+                TNr = _solveD(N,r,T) # T^T @ N^{-1} @ r
+                FNF = _solveD(N,F,F) # F^T @ N^{-1} @ F
+                TNT = _solveD(N,T,T) # T^T @ N^{-1} @ T
+                FNT = _solveD(N,T,F) # F^T @ N^{-1} @ T
+            else:
+                FNr = N.solve(r,F) # F^T @ N^{-1} @ r
                 TNr = N.solve(r,T) # T^T @ N^{-1} @ r
-                all_TNr.append(TNr)
+                FNF = N.solve(F,F) # F^T @ N^{-1} @ F
+                TNT = N.solve(T,T) # T^T @ N^{-1} @ T
+                FNT = N.solve(T,F) # F^T @ N^{-1} @ T
+                
+            all_FNr.append(FNr)
+            all_FNF.append(FNF)
+            all_TNT.append(TNT)
+            all_FNT.append(FNT)
+            all_TNr.append(TNr)
 
         self._cache['FNr'] = all_FNr
         self._cache['FNF'] = all_FNF
-        if not self._marginalizing_timing_model:
-            self._cache['FNT'] = all_FNT
-            self._cache['TNT'] = all_TNT
-            self._cache['TNr'] = all_TNr
+        self._cache['FNT'] = all_FNT
+        self._cache['TNT'] = all_TNT
+        self._cache['TNr'] = all_TNr
 
 
     def _compute_XZ(self, params):
@@ -650,34 +657,22 @@ class OptimalStatistic:
         for a,psr_signal in enumerate(self.pta._signalcollections):
             phiinv = psr_signal.get_phiinv(params)
             if phiinv.ndim == 1:
-                phiinv = np.diag(psr_signal.get_phiinv(params))
+                phiinv = np.diag(phiinv)
 
             FNr = self._cache['FNr'][a]
             FNF = self._cache['FNF'][a]
-            if self._marginalizing_timing_model:
-                sigma = phiinv + FNF
+            FNT = self._cache['FNT'][a]
+            TNT = self._cache['TNT'][a]
+            TNr = self._cache['TNr'][a]
+
+            sigma = phiinv + TNT
+            try:
                 cf = sl.cho_factor(sigma)
-
-                try:
-                    X[a] = FNr - FNF @ sl.cho_solve(cf, FNr)
-                    Z[a] = FNF - FNF @ sl.cho_solve(cf, FNF.T)
-                except np.linalg.LinAlgError:
-                    X[a] = FNr - FNF @ np.linalg.solve(sigma, FNr)
-                    Z[a] = FNF - FNF @ np.linalg.solve(sigma, FNF.T)
-            else:
-                FNT = self._cache['FNT'][a]
-                TNT = self._cache['TNT'][a]
-                TNr = self._cache['TNr'][a]
-
-                sigma = phiinv + TNT
-                cf = sl.cho_factor(sigma)
-
-                try:
-                    X[a] = FNr - FNT @ sl.cho_solve(cf, TNr)
-                    Z[a] = FNF - FNT @ sl.cho_solve(cf, FNT.T)
-                except np.linalg.LinAlgError:
-                    X[a] = FNr - FNT @ np.linalg.solve(sigma, TNr)
-                    Z[a] = FNF - FNT @ np.linalg.solve(sigma, FNT.T)
+                X[a] = FNr - FNT @ sl.cho_solve(cf, TNr)
+                Z[a] = FNF - FNT @ sl.cho_solve(cf, FNT.T)
+            except np.linalg.LinAlgError:
+                X[a] = FNr - FNT @ np.linalg.solve(sigma, TNr)
+                Z[a] = FNF - FNT @ np.linalg.solve(sigma, FNT.T)
 
         return X, Z
     
@@ -889,3 +884,24 @@ class OptimalStatistic:
         return rho_abk, sig_abk, norms_abk
 
 
+def _solveD(N_obj, right, left):
+    """A function to solve for the matrix product (left.T) @ D^{-1} @ right
+
+    This function is designed to solve the linear system of equations for the 
+    marginalizing timing model formalism of a PTA. This functionality of different
+    left and right matrices does not currently exist in 
+    enterprise.signals.gp_signals.MarginalizingNmat.solve(), hence this function.
+
+    Args:
+        N_obj (enterprise.signals.gp_signals.MarginalizingNmat): The D matrix object
+        right (np.ndarray): The matrix on the right side of the equation
+        left (np.ndarray): The matrix on the left side of the equation
+
+    Returns:
+        np.ndarray: The matrix product (left.T) @ D^{-1} @ right
+    """
+    Nmat = N_obj.Nmat
+    
+    lNr = Nmat.solve(right, left_array=left)
+    lDr = lNr - np.tensordot(N_obj.MNF(left), N_obj.MNMMNF(right), (0, 0))
+    return lDr
