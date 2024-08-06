@@ -4,16 +4,17 @@ from .utils import *
 
 import numpy as np
 
-from enterprise.signals.utils import powerlaw
-
 from itertools import combinations, combinations_with_replacement
 from tqdm import tqdm
+
 
 def _compute_pair_covariance(Z, phi1, phi2, orf, norm_ab, a2_est, use_tqdm, max_chunk):
     """A function to compute the pulsar pair covariance matrix. Not intended for user use.
 
     This function computes the pulsar pair covariance matrix as described in
-    Gersbach et al. 2024. This function uses two forms of phi so as to be agnostic
+    Gersbach et al. 2024. Specifically, this function separates the diagonal entries 
+    from the off-diagonals so that we can use the woodbury matrix identity for increase 
+    numerical stability. This function uses two forms of phi so as to be agnostic
     to both the OS and PFOS. phi1 is intended to be either \hat{\phi} in the case
     of the OS and \tilde{\phi}(f_k) in the case of the PFOS. phi2 is intended to be
     \hat{\phi} in the case of the OS and \Phi(f_k) in the case of the PFOS. Similarly
@@ -35,11 +36,12 @@ def _compute_pair_covariance(Z, phi1, phi2, orf, norm_ab, a2_est, use_tqdm, max_
         np.ndarray: The pulsar pair covariance matrix [2, N_pairs x N_pairs]
     """
     fact_c = _factored_pair_covariance(Z,phi1,phi2,orf,norm_ab,use_tqdm,max_chunk)
-    return fact_c[0] + a2_est*fact_c[1] + a2_est**2*fact_c[2]
+    return np.array(( fact_c[0], a2_est*fact_c[1] + a2_est**2*fact_c[2] ))
 
 
-def _compute_mcos_pair_covariance(Z, phi1, phi2, orf, design, rho_ab, sig_ab, 
-                                  norm_ab, a2_est, use_tqdm, max_chunk):
+def _compute_mcos_pair_covariance(Z, phi1, phi2, orf, design, 
+                                  rho_ab, sig_ab, norm_ab, a2_est,
+                                  use_tqdm, max_chunk):
     """Compute the pulsar pair covariance matrix with the MCOS. Not intended for user use.
 
     This function computes the pulsar pair covariance matrix with the MCOS as described in
@@ -66,9 +68,8 @@ def _compute_mcos_pair_covariance(Z, phi1, phi2, orf, design, rho_ab, sig_ab,
         max_chunk (int): The maximum number of simultaneous matrix calculations
 
     Returns:
-        np.ndarray: The pulsar pair covariance matrix [N_pairs x N_pairs]
+        np.ndarray: The pulsar pair covariance matrix [2, N_pairs x N_pairs]
     """
-    # MCOS w/ pair covariance - From Sardesai et al. 2023
     # Need to compute the a no-PC MCOS for amp estimates
     temp_c = np.square(sig_ab)
     mcos,_ = linear_solve(design,temp_c,rho_ab,'diagonal')
@@ -78,7 +79,7 @@ def _compute_mcos_pair_covariance(Z, phi1, phi2, orf, design, rho_ab, sig_ab,
     cor_pow = np.sum([o*a for o,a in zip(orf,est_pow)], axis=0)
 
     fact_c = _factored_pair_covariance(Z,phi1,phi2,cor_pow,norm_ab,use_tqdm,max_chunk)
-    return fact_c[0] + fact_c[1] + fact_c[2]
+    return np.array(( fact_c[0], fact_c[1] + fact_c[2] ))
 
 
 # Hidden function which directly calculates the factored pair covariance matrix.

@@ -288,8 +288,9 @@ class OptimalStatistic:
         can compute any flavor of the OS which uses broadband estimation (i.e. constructs
         a single estimator for the whole spectrum). There are many forms in which you can
         use this function, and checking the decision tree is best for determining exactly
-        what you might want and what parameters to set to accomplish that. The basic
-        usage of this function can be boiled down to the following:
+        what you might want and what parameters to set to accomplish that. 
+        
+        The basic usage of this function can be boiled down to the following:
         If you want to compute a single iteration of the OS:
             - supply a set of params and set N=1. By default, if params=None, this 
               will compute the maximum likelihood OS.
@@ -372,8 +373,8 @@ class OptimalStatistic:
             
             xi,_ = utils.compute_pulsar_pair_separations(self.psrs, self._pair_idx)
 
-            rho, sig, C, A2, A2s = self._compute_os_iteration(pars, phihat,
-                                                    pair_covariance, use_tqdm)
+            rho, sig, C, A2, A2s = self._compute_os_iteration(pars, phihat, pair_covariance, 
+                                                              use_tqdm)
             
             if return_pair_vals:
                 xi,_ = utils.compute_pulsar_pair_separations(self.psrs, self._pair_idx)
@@ -416,8 +417,8 @@ class OptimalStatistic:
                     g = utils.get_fixed_gwb_gamma(self.pta, self.gwb_name)
                     phihat = powerlaw(np.repeat(self.freqs,2), 0, g)
                 
-                rho,sig,C,A2,A2s = self._compute_os_iteration(pars, phihat, 
-                                                        pair_covariance, False)
+                rho,sig,C,A2,A2s = self._compute_os_iteration(pars, phihat, pair_covariance, 
+                                                              False)
 
                 self.nmos_iterations['A2'].append(A2)
                 self.nmos_iterations['A2s'].append(A2s)
@@ -448,7 +449,7 @@ class OptimalStatistic:
         return A2, A2s, param_index
 
 
-    def compute_PFOS(self, params=None, N=1, pair_covariance=False, narrowband=False,
+    def compute_PFOS(self, params=None, N=1, pair_covariance=False, narrowband=False, 
                      return_pair_vals=True, use_tqdm=True):
         """Compute the PFOS and its various modifications.
 
@@ -456,8 +457,9 @@ class OptimalStatistic:
         can computes the different flavors of the PFOS (i.e. a free-spectrum search). 
         There are many forms in which you can use this function, and checking the 
         decision tree is best for determining exactly what you might want and what 
-        parameters to set to accomplish that. The basic usage of this function can 
-        be boiled down to the following:
+        parameters to set to accomplish that. 
+
+        The basic usage of this function can be boiled down to the following:
         If you want to compute a single iteration of the PFOS:
             - supply a set of params and set N=1. By default, if params=None, this 
               will compute the maximum likelihood PFOS.
@@ -521,7 +523,7 @@ class OptimalStatistic:
 
             pars = utils.freespec_param_fix(params,self.gwb_name)
             rhok,sigk,Ck,Sk,Sks = self._compute_pfos_iteration(pars, narrowband, 
-                                                        pair_covariance, use_tqdm)
+                                            pair_covariance, use_tqdm)
             
             if return_pair_vals:
                 xi,_ = utils.compute_pulsar_pair_separations(self.psrs,self._pair_idx)
@@ -551,8 +553,8 @@ class OptimalStatistic:
                 params = {p:v for p,v in zip(self.lfcore.params,self.lfcore.chain[rand_i])}
                 pars = utils.freespec_param_fix(params, self.gwb_name)
                 
-                rhok,sigk,Ck,Sk,Sks = self._compute_pfos_iteration(pars, narrowband,
-                                                            pair_covariance, False)
+                rhok,sigk,Ck,Sk,Sks = self._compute_pfos_iteration(pars, narrowband, pair_covariance, 
+                                                                   False)
                         
                 self.nmos_iterations['Sk'].append(Sk)
                 self.nmos_iterations['Sks'].append(Sks)
@@ -703,7 +705,8 @@ class OptimalStatistic:
         rho_ab, sig_ab = self._compute_rho_sig(X,Z,phihat)
 
         if pair_covariance:
-            solve_method='pinv'
+            solve_method='woodbury'
+
             if self.lfcore is not None and self.gwb_name+'_log10_rho_0' in self.lfcore.params:
                 param_cov = utils.freespec_covariance(self.lfcore,self.gwb_name)
             else:
@@ -718,8 +721,10 @@ class OptimalStatistic:
                         np.square(sig_ab), a2_est, use_tqdm, self._max_chunk)
             else:
                 # Single component
+                # Splits the covariance matrix into diagonal and off-diagonal elements
                 C = pc._compute_pair_covariance(Z, phihat, phihat, 
                         self._orf_matrix[0], np.square(sig_ab), a2_est, use_tqdm, self._max_chunk)
+             
         else:
             solve_method='diagonal'
             C = np.square(sig_ab)
@@ -729,6 +734,9 @@ class OptimalStatistic:
         
         A2 = np.squeeze(A2) if self.norfs>1 else A2.item()
         A2s = np.squeeze(A2s) if self.norfs>1 else np.sqrt(A2s.item())
+
+        if pair_covariance:
+            C = C[0]+C[1]
 
         return rho_ab, sig_ab, C, A2, A2s
 
@@ -778,23 +786,27 @@ class OptimalStatistic:
             phi2 = phi / sk
 
             if pair_covariance:
-                solve_method = 'pinv'
+                solve_method = 'woodbury'
                 if self.norfs>1:
                     # MCOS
-                    Ck[k] = pc._compute_mcos_pair_covariance(Z, phi1, phi2, self._orf_matrix, 
-                            self.orf_design_matrix, rho_abk[k], sig_abk[k], norm_abk[k], sk, 
+                    C = pc._compute_mcos_pair_covariance(Z, phi1, phi2, self._orf_matrix, 
+                            self.orf_design_matrix, rho_abk[k], sig_abk[k], norm_abk[k], sk,
                             False, self._max_chunk)
                 else:
                     # Single component
-                    Ck[k] = pc._compute_pair_covariance(Z, phi1, phi2, 
+                    C = pc._compute_pair_covariance(Z, phi1, phi2, 
                             self._orf_matrix[0], norm_abk[k], sk, False, self._max_chunk)
             else:
                 solve_method='diagonal'
-                Ck[k] = sig_abk[k]**2
+                C = sig_abk[k]**2
         
-            s, ssig = utils.linear_solve(self.orf_design_matrix, Ck[k], 
+            s, ssig = utils.linear_solve(self.orf_design_matrix, C, 
                                          rho_abk[k,:,None], solve_method)
             
+            if pair_covariance:
+                Ck[k] = C[0]+C[1]
+            else:
+                Ck[k] = C
             Sk[k] = np.squeeze(s) if self.norfs>1 else s.item()
             Sks[k] = np.squeeze(ssig) if self.norfs>1 else np.sqrt(ssig.item()) 
 

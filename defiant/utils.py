@@ -79,11 +79,11 @@ def linear_solve(X,C,r,method=None):
             # Woodbury method requires C to have shape [2 x N_pairs x N_pairs]
             if C.shape[0] != 2 or C.shape[1] != C.shape[2]:
                 raise ValueError('Woodbury method requires C to have shape [2 x N_pairs x N_pairs]')
-            S = np.diag(1/np.diag(C[0]))
+            S = np.diag(C[0]) # Convert to diagonal array
             K = C[1]
             I_n = np.eye(S.shape[0])
         
-            ainv = np.diag(1/np.diag(S))
+            ainv = np.diag(1/S) # Invert diagonal matrix, then convert to square
             Kainv = K@ainv
             cinv = ainv - ainv @ np.linalg.solve(I_n + Kainv, Kainv)
 
@@ -561,7 +561,7 @@ def uncertainty_sample(A2,A2s,pfos=False,mcos=False,n_usamples=100):
     return all_A2
 
             
-def clip_covariance(cov, eig_thresh=1e-30):
+def clip_covariance(cov, eig_thresh=1e-15):
     """A function to clip the small or negative eigenvalues of a covariance matrix
 
     This function is to fix some minor numerical problems with some covariance matrices
@@ -590,4 +590,31 @@ def clip_covariance(cov, eig_thresh=1e-30):
         return new_cov
     
     return cov
+
+
+def chi_square(rho, sig, design_mat, a2):
+    """A function to calculate the chi-square value of a model fit
+
+    Args:
+        rho (np.ndarray): The data vector [N]
+        sig (np.ndarray): The uncertainty or covariance in the data vector [N] or [N x N]
+        design_mat (np.ndarray): The design matrix [N x M]
+        a2 (np.ndarray): The model vector [M]
+
+    Returns:
+        float: The floating point chi-square value
+    """
+    if sig.ndim == 1:
+        sig = np.diag(1/sig**2)
+    if a2.ndim == 1:
+        a2 = a2[:,None]
+    if design_mat.ndim == 1:
+        design_mat = design_mat[:,None]
+    
+    model = design_mat @ a2
+    residuals = (rho - model)
+
+    chi2 = residuals.T @ sig @ residuals
+    return chi2
+
 
