@@ -3,6 +3,7 @@ from . import custom_exceptions as os_ex
 from . import utils
 from . import pair_covariance as pc 
 from . import null_distribution as os_nu
+from . import orf_functions
 
 import numpy as np
 import scipy.linalg as sl
@@ -11,7 +12,6 @@ import enterprise.signals as ent_sig
 from enterprise.pulsar import BasePulsar
 
 from enterprise.signals.utils import powerlaw
-from enterprise_extensions import model_orfs
 from la_forge.core import Core
 
 from tqdm import tqdm
@@ -28,19 +28,21 @@ class OptimalStatistic:
     NOTE: This class does not currently support PTAs with varied white noise parameters
 
     Attributes:
-        pta: The enterprise.signals.signal_base.PTA object for the pulsar timing array.
-        psrs: A list of enterprise.pulsar.BasePulsar objects for the pulsars in the PTA.
-        npsr: The number of pulsars in the PTA.
-        gwb_name: The name of the GWB signal in the PTA.
-        lfcore: A la_forge.core.Core object for noise marginalization.
-        max_like_params: The maximum likelihood parameters for the PTA.
-        freqs: The frequencies of the PTA.
-        npairs: The number of pulsar pairs in the PTA.
-        pair_names: A list of the names of the pulsar pairs.
-        norfs: The number of overlap reduction functions.
-        orf_design_matrix: The design matrix for the ORFs.
-        orf_names: The names of the ORFs.
-        nmos_iterations: A dictionary of the NMOS iterations.
+        psrs (list): A list of enterprise.pulsar.BasePulsar objects.
+        pta (enterprise.signals.signal_base.PTA): A PTA object.
+        gwb_name (str): The name of the GWB in the PTA object.
+        lfcore (la_forge.core.Core): A la_forge.core.Core object.
+        max_like_params (dict): The maximum likelihood parameters from the chain.
+        freqs (np.ndarray): The frequencies of the PTA.
+        npair (int): The number of pulsar pairs.
+        norfs (int): The number of overlap reduction functions.
+        orf_design_matrix (np.ndarray): The design matrix of the ORFs.
+        _orf_matrix (np.ndarray): A pulsar matrix of ORF values.
+        orf_names (list): The names of the ORFs.
+        nmos_iterations (dict): A dictionary of the NMOS iterations.
+        _max_chunk (int): The maximum number of simultaneous matrix products.
+        _marginalizing_timing_model (bool): Whether the PTA is marginalizing the timing model.
+        _cache (dict): A dictionary of cached matrix products
     """
 
     def __init__(self, psrs, pta, gwb_name='gw', core_path=None, core=None,  
@@ -110,6 +112,7 @@ class OptimalStatistic:
         self.npairs = len(self.pair_names)
 
         self.norfs = 1
+        self.orf_functions = []
         self.orf_design_matrix, self._orf_matrix, self.orf_names = None, None, None
         self.set_orf(orfs, orf_names)
 
@@ -178,29 +181,30 @@ class OptimalStatistic:
         corresponding ORF design matrix. This function supports multiple ORFs by
         simply supplying a list of ORFs. orf_names can be left as None to use default
         names. orfs can also be a user-defined function which accepts 2 
-        enterprise.pulsar.BasePulsar. Otherwise, use one of the following pre-defined
-        ORF names:
-            'hd' - Hellings and Downs
-            'dipole' - Dipole
-            'monopole' - Monopole
-            'gw_dipole' - Gravitational wave dipole
-            'gw_monopole' - Gravitational wave monopole
-            'st' - Scalar tensor
+        enterprise.pulsar.BasePulsar. 
+        
+        Otherwise, use one of the following pre-defined ORF within 
+        defiant.orf_functions.defined_orfs:
+            - 'hd' or 'hellingsdowns': Hellings and Downs
+            - 'dp' or 'dipole': Dipole
+            - 'mp' or 'monopole': Monopole
+            - 'gwdp' or 'gw_dipole': Gravitational wave dipole
+            - 'gwmp' or 'gw_monopole': Gravitational wave monopole
+            - 'st' or 'scalar_tensor': Scalar tensor
 
         Args:
-            orfs (list, optional): An ORF string, list of strings, or function. 
-                    Note that a custom function must accept two enterprise.pulsar.BasePulsar
-                    objects as inputs and outputs a float for their ORF.
+            orfs (str or function or list): An ORF string, function or list of 
+                    strings and/or functions. Note that a custom function must 
+                    accept two enterprise.pulsar.BasePulsar objects as inputs 
+                    and outputs a float for their ORF.
             orf_names (list, optional): The names of the corresponding orfs. Set to None
                     for default names.
 
         Raises:
             ValueError: If the length of the orfs and orf_names does not match.
-            NameError: If a pre-defined ORF is not found.
+            ORFNotFoundError: If a pre-defined ORF is not found.
             TypeError: If the user-supplied ORF does not have correct format. 
         """
-        # TODO: Better utilize the names of the ORFs
-
         if not hasattr(orfs, '__getitem__'):
             orfs = [orfs]
         elif type(orfs) == str:
@@ -220,7 +224,7 @@ class OptimalStatistic:
         self.orf_names = []
         # Used internal and external
         self.orf_design_matrix = np.zeros( (self.norfs,self.npairs) ) 
-        # Used for pair covariance
+        # Used internal for pair covariance
         self._orf_matrix = np.ones( (self.norfs,self.npsr,self.npsr) ) 
 
         for i in range( len(orfs) ):
@@ -228,33 +232,14 @@ class OptimalStatistic:
             name = orf[i]
 
             if type(orf) == str:
-                # ORF must be one of the built-in functions
-                if orf.lower() == 'hd':
-                    cur_orf = model_orfs.hd_orf
-                    name = 'HD' if name is None else name
-                elif orf.lower() == 'dipole':
-                    cur_orf = model_orfs.dipole_orf
-                    name = 'Dipole' if name is None else name
-                elif orf.lower() == 'monopole':
-                    cur_orf = model_orfs.monopole_orf
-                    name = 'Monopole' if name is None else name
-                elif orf.lower() == 'gw_dipole':
-                    cur_orf = model_orfs.gw_dipole_orf
-                    name = 'GW_Dipole' if name is None else name
-                elif orf.lower() == 'gw_monopole':
-                    cur_orf = model_orfs.gw_monopole_orf
-                    name = 'GW_Monopole' if name is None else name
-                elif orf.lower() == 'st':
-                    cur_orf = model_orfs.st_orf
-                    name = 'Scalar tensor' if name is None else name
-                else:
-                    msg = f"Unknown ORF name: '{orf}'. Check the documentation " +\
-                           "for pre-programmed ORFs or supply your own."
-                    raise NameError(msg)
+                # ORF must be pre-defined function
+                cur_orf = orf_functions.get_orf_function(orf)
+                name = orf if name is None else name
                 
                 self.orf_names.append(name)
+                self.orf_functions.append(cur_orf)
                 for j,(a,b) in enumerate(self._pair_idx):
-                    v = cur_orf(self.psrs[a].pos , self.psrs[b].pos)
+                    v = cur_orf(self.psrs[a] , self.psrs[b])
                     self.orf_design_matrix[i,j] = v
                     self._orf_matrix[i,a,b] = v
                     self._orf_matrix[i,b,a] = v
@@ -262,7 +247,9 @@ class OptimalStatistic:
             else:
                 # ORF is user supplied function
                 name = orf.__name__ if name is None else name
+
                 self.orf_names.append(name)
+                self.orf_functions.append(orf)
                 try:
                     for j,(a,b) in enumerate(self._pair_idx):
                         v = orf(self.psrs[a], self.psrs[b])
@@ -447,6 +434,70 @@ class OptimalStatistic:
             return xi, rho, sig, C, A2, A2s, param_index
 
         return A2, A2s, param_index
+    
+
+    def compute_binned_OS(self, params=None, bins=30, N=1, gamma=None, bin_covariance=False, 
+                          return_pair_vals=True, use_tqdm=True):
+        """Compute the binned version of the OS and its various modifications.
+
+        This function builds upon the compute_OS function by binning the individual
+        pulsar pairs before fitting for an amplitude. This can help reduce pulsar
+        variance and stability when using the MCOS with pair covariance. 
+        
+        The basic usage of this function can be boiled down to the following:
+        If you want to compute a single iteration of the OS:
+            - supply a set of params and set N=1. By default, if params=None, this 
+              will compute the maximum likelihood OS.
+        If you want to compute the noise marginalized OS:
+            - ensure that the OptimalStatistiic object has a La forge core set 
+              (see OptimalStatistic.set_chain_params), and set N>1. 
+        If you want to compute the OS with pair covariance:
+            - simply set pair_covariance=True. This will also replace the covariance 
+              matrix, C, that gets returned.
+        If you are using a varied gamma CURN model, you can either:
+            - Set a particular gamma value for all NMOS iterations by setting gamma
+            - Or set gamma=None and the function will default to each iterations' gamma value
+        
+
+        Args:
+            params (dict, optional): A dictionary of key:value parameters. 
+                Defaults to maximum likelihood. Only used if N=1.
+            bins (int): The number of bins to use for the binned OS. Defaults to 30.
+            N (int): The number of NMOS iterations to run. If 1, uses params. Defaults to 1.
+            gamma (float, optional): The spectral index to use for analysis. If set to None,
+                this function first checks if gamma is in params, otherwise it will
+                assume the PTA model is a fixed gamma and take it from there. Defaults to None.
+            bin_covariance (bool): Whether to use pair covariance. Defaults to False.
+            return_pair_vals (bool): Whether to return the xi, rho, sig, C values. Defaults to True.
+            use_tqdm (bool): Whether to use a progress bar. Defaults to True.
+
+        Raises:
+            ValueError: If params is None and to la_forge core is set.
+            ValueError: If Noise Marginalization is attempted without a La forge core.
+            os_ex.NMOSInteruptError: If the noise marginalization iterations are interupted.
+
+        Returns:
+            Return values are very different depending on which options you choose.
+            
+            Values marked with a * are floats while every other return is an np.array.
+            If N=1 and return_pair_vals=False:
+                - returns A2*, A2S*
+            If N=1 and return_pair_vals=True:
+                - returns xi, rho, sig, C, A2*, A2S*
+            If N>1 and return_pair_vals=False:
+                - returns A2, A2S, param_index
+            If N>1 and return_pair_vals=True:
+                - returns xi, rho, sig, C, A2, A2S, param_index
+            
+            A2 (np.ndarray/float) - The OS amplitude estimators at 1/yr
+            A2s (np.ndarray/float) - The 1-sigma uncertainties of A2
+            xi (np.ndarray) - The pair separations of the pulsars
+            rho (np.ndarray) - The pair correlated powers
+            sig (np.ndarray) - The pair uncertainties in rho
+            C (np.ndarray) - The pair covariance matrix (either a vector or matrix)
+            param_index (np.ndarray) - The index of the parameter vectors used in NM each iteration
+        """
+        pass
 
 
     def compute_PFOS(self, params=None, N=1, pair_covariance=False, narrowband=False, 

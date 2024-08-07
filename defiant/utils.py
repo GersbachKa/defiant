@@ -5,6 +5,7 @@ from scipy.stats import multivariate_normal
 from scipy.linalg import cho_factor, cho_solve
 
 from .custom_exceptions import *
+from .orf_functions import get_orf_function, get_pulsar_separation
 
 
 def linear_solve(X,C,r,method=None):
@@ -316,13 +317,13 @@ def binned_pair_correlations(xi, rho, sig, bins=10, orf='hd'):
     this function will assume you have supplied a pair covariance matrix and will use
     equation [35] from Gersbach et al. 2024. Also note that orf can be replaced with 
     a custom function which must accept pulsar positions (cartesian) as its only 2 arguments.
-    Predefined orf names are:
-        'hd' - Hellings and downs
-        'dipole' - Dipole
-        'monopole' - Monopole
-        'gw_dipole' - Gravitational wave dipole
-        'gw_monopole' - Gravitational wave monopole
-        'st' - Scalar tensor
+    The pre-defined ORFs found in defiant.orf_functions.defined_orfs are:
+        - 'hd' or 'hellingsdowns': Hellings and Downs
+        - 'dp' or 'dipole': Dipole
+        - 'mp' or 'monopole': Monopole
+        - 'gwdp' or 'gw_dipole': Gravitational wave dipole
+        - 'gwmp' or 'gw_monopole': Gravitational wave monopole
+        - 'st' or 'scalar_tensor': Scalar tensor
 
     Args:
         xi (numpy.ndarray): A vector of pulsar pair separations
@@ -351,22 +352,25 @@ def binned_pair_correlations(xi, rho, sig, bins=10, orf='hd'):
     
 
     if len(sig.shape)>1:
+        # Pair covariant
+        orf_func = get_orf_function(orf)
         for i in range(bins):
             #Mask and select range of values to average
             l,h = int(ranges[i]), int(ranges[i+1])
             subXi = (xi[sortMask])[l:h]
             subRho = (rho[sortMask])[l:h]
             subSig = (sig[sortMask,:][:,sortMask])[l:h,l:h]
-            subORF = orf_xi(subXi,orf)[:,None]
+            subORF = orf_func(subXi)[:,None]
 
             r,s2 = linear_solve(subORF,subSig,subRho,'pinv')
 
             xiavg[i] = np.average(subXi)
-            bin_orf = orf_xi(xiavg[i],orf)
+            bin_orf = orf_func(xiavg[i])
             rhoavg[i] = bin_orf * r
             sigavg[i] = np.abs(bin_orf)*np.sqrt(s2)
 
     else:
+        # Non pair covariant
         for i in range(bins):
             #Mask and select range of values to average
             subXi = xi[sortMask]
@@ -382,60 +386,7 @@ def binned_pair_correlations(xi, rho, sig, bins=10, orf='hd'):
             rhoavg[i] = np.sum(subRho/subSigSquare)/np.sum(1/subSigSquare)
             sigavg[i] = 1/np.sqrt(np.sum(1/subSigSquare))
     
-    return xiavg,rhoavg,sigavg
-
-
-def orf_xi(xi, orf='hd'):
-    """A function to turn pulsar separations into correlations using a set ORF
-
-    Given a pulsar separation or separations, compute the correlation factor
-    for that separation and given overlap reduction function. Note that orf can be 
-    replaced with a custom function which must accept pulsar positions (cartesian) 
-    as its only 2 arguments.
-    Predefined orf names are:
-        'hd' - Hellings and downs
-        'dipole' - Dipole
-        'monopole' - Monopole
-        'gw_dipole' - Gravitational wave dipole
-        'gw_monopole' - Gravitational wave monopole
-        'st' - Scalar tensor
-
-    Args:
-        xi (numpy.ndarray or float): A vector or float of pulsar pair separation(s)
-        orf (str, function): The name of a predefined ORF function or custom function 
-
-    Raises:
-        ValueError: If given a string of an unrecognized ORF
-
-    Returns:
-        _type_: correlation(s) for the pair separation(s)
-    """
-    if type(orf) == str:
-        from enterprise_extensions import model_orfs
-        if orf.lower() == 'hd':
-            orf_func = model_orfs.hd_orf
-        elif orf.lower() == 'dipole':
-            orf_func = model_orfs.dipole_orf
-        elif orf.lower() == 'monopole':
-            orf_func = model_orfs.monopole_orf
-        elif orf.lower() == 'gw_dipole':
-            orf_func = model_orfs.gw_dipole_orf
-        elif orf.lower() == 'gw_monopole':
-            orf_func = model_orfs.gw_monopole_orf
-        elif orf.lower() == 'st':
-            orf_func = model_orfs.st_orf
-        else:
-            raise ValueError(f"Undefined ORF name '{orf}'")
-        orf_func
-    else:
-        orf_func = orf
-    
-    orf_lamb = lambda x: orf_func([1,0,0], [np.cos(x),np.sin(x),0])
-
-    if np.array(xi).size>1:
-        return np.array([orf_lamb(x) for x in xi])
-    else:
-        return orf_lamb(xi)    
+    return xiavg,rhoavg,sigavg  
 
 
 def calculate_mean_sigma_for_MCOS(xi, A2, A2_cov, orfs=['hd','dipole','monopole'], 
@@ -446,13 +397,13 @@ def calculate_mean_sigma_for_MCOS(xi, A2, A2_cov, orfs=['hd','dipole','monopole'
     will calculate the mean and sigma of the total correlated power for a given
     MCOS fit A2 vector and A2_cov covariance matrix. You will also need to supply
     the ORFs you want to use in the calculation. 
-    Predefined orf names are:
-        'hd' - Hellings and downs
-        'dipole' - Dipole
-        'monopole' - Monopole
-        'gw_dipole' - Gravitational wave dipole
-        'gw_monopole' - Gravitational wave monopole
-        'st' - Scalar tensor
+    The pre-defined ORFs found in defiant.orf_functions.defined_orfs are:
+        - 'hd' or 'hellingsdowns': Hellings and Downs
+        - 'dp' or 'dipole': Dipole
+        - 'mp' or 'monopole': Monopole
+        - 'gwdp' or 'gw_dipole': Gravitational wave dipole
+        - 'gwmp' or 'gw_monopole': Gravitational wave monopole
+        - 'st' or 'scalar_tensor': Scalar tensor
 
     Args:
         xi (numpy.ndarray): A vector of pulsar pair separations
@@ -466,7 +417,8 @@ def calculate_mean_sigma_for_MCOS(xi, A2, A2_cov, orfs=['hd','dipole','monopole'
     """
     norm = multivariate_normal(mean=A2,cov=A2_cov,allow_singular=True)
     rvs = norm.rvs(size=n_samples)
-    orf_mods = [orf_xi(xi, o) for o in orfs]
+
+    orf_mods = [get_orf_function(o)(xi) for o in orfs]
 
     mod_vals = []
     for A2 in rvs:

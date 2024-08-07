@@ -15,14 +15,15 @@ def create_correlation_plot(xi,rho,sig,C,A2,A2s,bins=10,orf=['hd'],eig_thresh=1e
     frequency's rho, sig, C, A2, and A2s]. This function DOES support the multi-component
     optimal statistic and pair covariance, however, if using both, the binned correlation
     estimators will only be calculated using the first element of orf. This function
-    also only works for pre-implemented ORFs in enterprise_extensions.
-    These ORFs are:
-        'hd' - Hellings and downs
-        'dipole' - Dipole
-        'monopole' - Monopole
-        'gw_dipole' - Gravitational wave dipole
-        'gw_monopole' - Gravitational wave monopole
-        'st' - Scalar tensor
+    also only works for pre-implemented ORFs in defiant.orf_functions.defined_orfs
+
+    The list of pre-defined orfs are:
+        - 'hd' or 'hellingsdowns': Hellings and Downs
+        - 'dp' or 'dipole': Dipole
+        - 'mp' or 'monopole': Monopole
+        - 'gwdp' or 'gw_dipole': Gravitational wave dipole
+        - 'gwmp' or 'gw_monopole': Gravitational wave monopole
+        - 'st' or 'scalar_tensor': Scalar tensor
 
     Args:
         xi (_type_): _description_
@@ -38,9 +39,7 @@ def create_correlation_plot(xi,rho,sig,C,A2,A2s,bins=10,orf=['hd'],eig_thresh=1e
     Returns:
         _type_: _description_
     """
-    try: # Check if orf is a list
-        _ = orf[0]
-    except:
+    if not hasattr(orf,'__iter__'):
         orf = [orf]
 
     fig, ax = plt.subplots(**subplot_kwargs)
