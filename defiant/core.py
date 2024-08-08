@@ -763,7 +763,7 @@ class OptimalStatistic:
             else:
                 param_cov = np.diag(np.ones_like(self.freqs))
 
-            a2_est = utils.fit_a2_from_params(params, model_phi=phihat[::2], cov=param_cov)
+            a2_est = utils.fit_a2_from_params(params, gwb_name=self.gwb_name, model_phi=phihat[::2], cov=param_cov)
 
             if self.norfs>1:
                 # MCOS

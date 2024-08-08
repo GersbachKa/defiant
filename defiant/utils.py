@@ -234,7 +234,6 @@ def fit_a2_from_params(params, pta=None, gwb_name='gw', model_phi=None, cov=None
     Returns:
         float: The estimated square amplitude of the GWB.
     """
-    
     # Check if the amplitude is in the params!
     if gwb_name+'_log10_A' in params:
         return 10**(2*params[gwb_name+'_log10_A'])

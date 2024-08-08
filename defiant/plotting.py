@@ -3,6 +3,7 @@ from matplotlib import pyplot as plt
 from scipy.stats import binom
 import numpy as np
 from . import utils
+from .orf_functions import get_orf_function
 
 
 def create_correlation_plot(xi,rho,sig,C,A2,A2s,bins=10,orf=['hd'],eig_thresh=1e-10,
@@ -53,21 +54,20 @@ def create_correlation_plot(xi,rho,sig,C,A2,A2s,bins=10,orf=['hd'],eig_thresh=1e
         xia,rhoa,siga = utils.binned_pair_correlations(xi,rho,sig,bins,orf)
     
     # Plot correlations
-    ax.errorbar(xia,rhoa,siga,fmt='oC0',label='Binned Correlations')
+    ax.errorbar(xia,rhoa,siga,fmt='oC0',label='Binned Correlations',capsize=3)
 
     xi_range = np.linspace(0,np.pi,1002)[1:-1] # Avoid 0 and pi
 
     if len(np.array(A2).shape)>1:
         # Multi-component
-        clipped = utils.clip_covariance(A2s,eig_thresh)
-        means,mean_sig = utils.calculate_mean_sigma_for_MCOS(xi_range,A2,clipped,orf)
+        means,mean_sig = utils.calculate_mean_sigma_for_MCOS(xi_range,A2,A2s,orf,clip_thresh=eig_thresh)
         # Plot the means
         ax.plot(xi_range, means, 'C1', label='$A^2$ Fit')
         ax.fill_between(xi_range, means-mean_sig, means+mean_sig, color='C1', alpha=0.1)
 
     else:
         # Single component
-        orf_mod = utils.orf_xi(xi_range,orf[0])
+        orf_mod = get_orf_function(orf[0])(xi_range)
         ax.plot(xi_range, A2*orf_mod, 'C1', label='$A^2$ Fit')
         ax.fill_between(xi_range, (A2-A2s)*orf_mod, (A2+A2s)*orf_mod, color='C1', alpha=0.1)    
 
