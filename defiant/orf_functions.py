@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.special import legendre
 
 from .custom_exceptions import ORFNotFoundError
 
@@ -68,6 +69,7 @@ def get_orf_function(orf_name='hd'):
         - 'gwdp' or 'gw_dipole': Gravitational wave dipole
         - 'gwmp' or 'gw_monopole': Gravitational wave monopole
         - 'st' or 'scalar_tensor': Scalar tensor
+        - 'l_n' or 'legendre_n': Legendre polynomial (where n is the legendre order)
 
     Raises:
         ORFNotFoundError: If the orf_name is not found in the defined_orfs list
@@ -86,6 +88,14 @@ def get_orf_function(orf_name='hd'):
     for orf in defined_orfs: 
         if orf_name.lower() in orf[0]:
             return orf[1]
+        
+        # Legendre polynomials are a bit special
+        if (orf[0][0] in orf_name.lower()) or (orf[0][1] in orf_name.lower()):
+            # This is the legendre polynomial, but which order? It should be 
+            # supplied by the user as 'l_n' or 'legendre_n' where n is the order.
+            l_order = int(orf_name.split('_')[-1])
+            legendre = lambda arg1,arg2=None: orf_legendre(arg1, arg2, l=l_order)
+            return legendre
         
     # If the function is not found, raise an error
     raise ORFNotFoundError(f"The ORF function '{orf_name}' is not found in the defined_orfs list.")
@@ -329,6 +339,40 @@ def orf_st(arg1, arg2 = None):
     return ret
 
 
+def orf_legendre(arg1, arg2 = None, l=0):
+    """A function for legendre polynomial overlap reduction functions
+
+    This function will return the legendre polynomial of order l as an overlap 
+    reduction function using either two enterprise.Pulsar objects or a pulsar 
+    separation in radians. This function supports vectorization.
+
+    Args:
+        arg1 (enterprise.Pulsar or float): The first pulsar object or the pulsar 
+                separation in radians.
+        arg2 (enterprise.Pulsar or None): The second pulsar object or None if arg1 
+                is pulsar separation. Defaults to None.
+
+    Returns:
+        float: The ORF value
+    """
+    if arg2 is not None:
+        # Two pulsar arguments
+        xi = get_pulsar_separation(arg1, arg2)
+    else:
+        # One separation argument
+        xi = arg1
+    
+    ret = legendre(l)(np.cos(xi))
+
+    # Check if the separation is zero (same pulsar)
+    if hasattr(xi, '__iter__'):
+        ret[xi == 0] = 1
+    else:
+        if xi == 0:
+            ret = 1
+    return ret
+
+
 # Anisotropic ORF functions ---------------------------------------------------
 
 # TODO: put in per-telescope orf functions
@@ -337,10 +381,11 @@ def orf_st(arg1, arg2 = None):
 
 
 defined_orfs = [
-    (['hellingsdowns','hd'],    orf_hd),    # Hellings and Downs
-    (['dipole','dp'],           orf_dp),    # Dipole
-    (['monopole','mp'],         orf_mp),    # Monopole
-    (['gw_dipole','gwdp'],      orf_gwdp),  # Gravitational wave dipole
-    (['gw_monopole','gwmp'],    orf_gwmp),  # Gravitational wave monopole
-    (['scalar_tensor','st'],    orf_st),    # Scalar tensor
+    (['hellingsdowns','hd'],    orf_hd),        # Hellings and Downs
+    (['dipole','dp'],           orf_dp),        # Dipole
+    (['monopole','mp'],         orf_mp),        # Monopole
+    (['gw_dipole','gwdp'],      orf_gwdp),      # Gravitational wave dipole
+    (['gw_monopole','gwmp'],    orf_gwmp),      # Gravitational wave monopole
+    (['scalar_tensor','st'],    orf_st),        # Scalar tensor
+    (['legendre_','l_'],        orf_legendre)   # Legendre polynomial
 ]

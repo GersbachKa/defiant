@@ -390,7 +390,7 @@ def binned_pair_correlations(xi, rho, sig, bins=10, orf='hd'):
 
 
 def calculate_mean_sigma_for_MCOS(xi, A2, A2_cov, orfs=['hd','dipole','monopole'], 
-                                  n_samples=1000):
+                                  n_samples=1000, clip_thresh=1e-10):
     """Calculate the mean and sigma of the total MCOS fit for a given xi.
 
     For a given pulsar pair separation, xi (can be a vector of xi), this function
@@ -411,11 +411,13 @@ def calculate_mean_sigma_for_MCOS(xi, A2, A2_cov, orfs=['hd','dipole','monopole'
         A2_cov (numpy.ndarray): A covariance matrix between A^2 values
         orfs (list, optional): A list of ORFs to use (either names or custom functions).
         n_samples (int): The number of samples of the fit to generate. Defaults to 1000.
+        clip_thresh (float): The threshold to clip the covariance matrix if needed. Defaults to 1e-10.
     
     Returns:
         (np.ndarray,np.ndarray): The corresponding mean and 1-sigma standard deviation.
     """
-    norm = multivariate_normal(mean=A2,cov=A2_cov,allow_singular=True)
+    clipped = clip_covariance(A2_cov,clip_thresh)
+    norm = multivariate_normal(mean=A2,cov=clipped,allow_singular=True)
     rvs = norm.rvs(size=n_samples)
 
     orf_mods = [get_orf_function(o)(xi) for o in orfs]
@@ -513,7 +515,7 @@ def uncertainty_sample(A2,A2s,pfos=False,mcos=False,n_usamples=100):
     return all_A2
 
             
-def clip_covariance(cov, eig_thresh=1e-15):
+def clip_covariance(cov, eig_thresh=1e-10):
     """A function to clip the small or negative eigenvalues of a covariance matrix
 
     This function is to fix some minor numerical problems with some covariance matrices
@@ -562,11 +564,13 @@ def chi_square(rho, sig, design_mat, a2):
         a2 = a2[:,None]
     if design_mat.ndim == 1:
         design_mat = design_mat[:,None]
+    if rho.ndim == 1:
+        rho = rho[:,None]
     
     model = design_mat @ a2
     residuals = (rho - model)
 
     chi2 = residuals.T @ sig @ residuals
-    return chi2
+    return chi2.item()
 
 
