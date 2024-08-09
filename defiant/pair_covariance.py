@@ -5,7 +5,7 @@ from .utils import *
 import numpy as np
 
 from itertools import combinations, combinations_with_replacement
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 
 def _compute_pair_covariance(Z, phi1, phi2, orf, norm_ab, a2_est, use_tqdm, max_chunk):
@@ -29,13 +29,15 @@ def _compute_pair_covariance(Z, phi1, phi2, orf, norm_ab, a2_est, use_tqdm, max_
         orf (np.ndarray): A matrix of the ORF for each pair of pulsars [N_pulsars x N_pulsars]
         norm_ab (np.ndarray): The normalization terms for each pulsar pair [N_pairs]
         a2_est (float): The estimated amplitude of the GWB
-        use_tqdm (bool): Whether to use TQDM's progress bar
+        use_tqdm (bool): A flag to use the tqdm progress bar
         max_chunk (int): The maximum number of simultaneous matrix calculations
 
     Returns:
         np.ndarray: The pulsar pair covariance matrix [2, N_pairs x N_pairs]
     """
-    fact_c = _factored_pair_covariance(Z,phi1,phi2,orf,norm_ab,use_tqdm,max_chunk)
+    fact_c = _factored_pair_covariance(Z, phi1, phi2, orf, norm_ab, 
+                                       use_tqdm, max_chunk)
+    
     return np.array(( fact_c[0], a2_est*fact_c[1] + a2_est**2*fact_c[2] ))
 
 
@@ -62,9 +64,12 @@ def _compute_mcos_pair_covariance(Z, phi1, phi2, orf, design,
         phi1 (np.ndarray): An array of the spectral model [2N_frequencies] (See description)
         phi2 (np.ndarray): A similar array of the spectral model [2N_frequencies] (See description)
         orf (np.ndarray): A matrix of the ORF for each pair of pulsars [N_pulsars x N_pulsars]
+        design (np.ndarray): The design matrix for the MCOS [N_pairs x M_orfs]
+        rho_ab (np.ndarray): The rho values for each pair of pulsars [N_pairs]
+        sig_ab (np.ndarray): The sig values for each pair of pulsars [N_pairs]
         norm_ab (np.ndarray): The normalization terms for each pulsar pair [N_pairs]
         a2_est (float): The estimated amplitude of the GWB
-        use_tqdm (bool): Whether to use TQDM's progress bar
+        use_tqdm (bool): A flag to use the tqdm progress bar
         max_chunk (int): The maximum number of simultaneous matrix calculations
 
     Returns:
@@ -81,7 +86,8 @@ def _compute_mcos_pair_covariance(Z, phi1, phi2, orf, design,
     # Hijack the factored code by giving it correlated power in ORF and A2=1!
     cor_pow = np.sum([o*a for o,a in zip(orf,est_pow)], axis=0)
 
-    fact_c = _factored_pair_covariance(Z,phi1,phi2,cor_pow,norm_ab,use_tqdm,max_chunk)
+    fact_c = _factored_pair_covariance(Z, phi1, phi2, cor_pow, norm_ab, 
+                                       use_tqdm, max_chunk)
     return np.array(( fact_c[0], fact_c[1] + fact_c[2] ))
 
 
@@ -103,7 +109,7 @@ def _factored_pair_covariance(Z, phi1, phi2, orf, norm_ab, use_tqdm, max_chunk):
         orf (numpy.ndarray): A N_pulsar x N_pulsar matrix of the ORF (or correlated power) 
                 for each pair of pulsars
         norm_ab (numpy.ndarray): The N_pair array of normalizations of the pair-wise estimators 
-        use_tqdm (bool): Whether to use TQDM's progress bar.
+        use_tqdm (bool): A flag to use the tqdm progress bar
         max_chunk (int): The maximum number of simultaneous matrix calculations. 
                 Works best between 100-1000 but depends on the computer. Defaults to 300.
 
@@ -140,8 +146,7 @@ def _factored_pair_covariance(Z, phi1, phi2, orf, norm_ab, use_tqdm, max_chunk):
     Zphi1Zphi2[b,a] = Zphi1[b] @ Zphi2[a]
 
     # Create the progress bar
-    progress_bar = tqdm(total=len(PoP),desc='PC elements',
-                        ncols=80) if use_tqdm else None 
+    progress_bar = tqdm(total=len(PoP),desc='PC elements',leave=False) if use_tqdm else None
 
     # Define a lambda function for easy reading
     mpt = lambda A,B: matrix_product_trace(A,B)
@@ -235,6 +240,7 @@ def _factored_pair_covariance(Z, phi1, phi2, orf, norm_ab, use_tqdm, max_chunk):
 
     except Exception as e:
         if use_tqdm: progress_bar.close()
+        tqdm.close()
         msg = 'Exception occured during pair covariance creation!'
         raise PCOSInteruptError(msg) from e
         

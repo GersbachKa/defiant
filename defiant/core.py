@@ -14,7 +14,7 @@ from enterprise.pulsar import BasePulsar
 from enterprise.signals.utils import powerlaw
 from la_forge.core import Core
 
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from warnings import warn
 
 
@@ -205,7 +205,7 @@ class OptimalStatistic:
             ORFNotFoundError: If a pre-defined ORF is not found.
             TypeError: If the user-supplied ORF does not have correct format. 
         """
-        if not hasattr(orfs, '__getitem__'):
+        if not hasattr(orfs, '__iter__'):
             orfs = [orfs]
         elif type(orfs) == str:
             orfs = [orfs]
@@ -229,7 +229,7 @@ class OptimalStatistic:
 
         for i in range( len(orfs) ):
             orf = orfs[i]
-            name = orf[i]
+            name = orfs[i]
 
             if type(orf) == str:
                 # ORF must be pre-defined function
@@ -330,7 +330,7 @@ class OptimalStatistic:
             param_index (np.ndarray) - The index of the parameter vectors used in NM each iteration
         """
         # TODO: return gamma values used in some form as well!
-        
+
         if N==1:
             if params is None and self.lfcore is None:
                 msg = "No parameters given and no chain files to default to!"
@@ -383,9 +383,9 @@ class OptimalStatistic:
             self.nmos_iterations['sig'] = []
             self.nmos_iterations['C'] = []
         try:
-            # I would parallelize this, but unfortunately I can't pickle an OS++ object
-            # due to the pta requirement. If I could pickle a PTA, it would be trivial!
-            for iter in tqdm(range(N)) if use_tqdm else range(N):
+            iterable = tqdm(range(N),desc='NM Iterations') if use_tqdm  else range(N)
+        
+            for iter in iterable:
                 rand_i = np.random.random_integers(self.lfcore.burn, self.lfcore.chain.shape[0]-1)
                 params = {p:v for p,v in zip(self.lfcore.params,self.lfcore.chain[rand_i])}
                 
@@ -405,7 +405,7 @@ class OptimalStatistic:
                     phihat = powerlaw(np.repeat(self.freqs,2), 0, g)
                 
                 rho,sig,C,A2,A2s = self._compute_os_iteration(pars, phihat, pair_covariance, 
-                                                              False)
+                                                              use_tqdm)
 
                 self.nmos_iterations['A2'].append(A2)
                 self.nmos_iterations['A2s'].append(A2s)
@@ -434,70 +434,6 @@ class OptimalStatistic:
             return xi, rho, sig, C, A2, A2s, param_index
 
         return A2, A2s, param_index
-    
-
-    def compute_binned_OS(self, params=None, bins=30, N=1, gamma=None, bin_covariance=False, 
-                          return_pair_vals=True, use_tqdm=True):
-        """Compute the binned version of the OS and its various modifications.
-
-        This function builds upon the compute_OS function by binning the individual
-        pulsar pairs before fitting for an amplitude. This can help reduce pulsar
-        variance and stability when using the MCOS with pair covariance. 
-        
-        The basic usage of this function can be boiled down to the following:
-        If you want to compute a single iteration of the OS:
-            - supply a set of params and set N=1. By default, if params=None, this 
-              will compute the maximum likelihood OS.
-        If you want to compute the noise marginalized OS:
-            - ensure that the OptimalStatistiic object has a La forge core set 
-              (see OptimalStatistic.set_chain_params), and set N>1. 
-        If you want to compute the OS with pair covariance:
-            - simply set pair_covariance=True. This will also replace the covariance 
-              matrix, C, that gets returned.
-        If you are using a varied gamma CURN model, you can either:
-            - Set a particular gamma value for all NMOS iterations by setting gamma
-            - Or set gamma=None and the function will default to each iterations' gamma value
-        
-
-        Args:
-            params (dict, optional): A dictionary of key:value parameters. 
-                Defaults to maximum likelihood. Only used if N=1.
-            bins (int): The number of bins to use for the binned OS. Defaults to 30.
-            N (int): The number of NMOS iterations to run. If 1, uses params. Defaults to 1.
-            gamma (float, optional): The spectral index to use for analysis. If set to None,
-                this function first checks if gamma is in params, otherwise it will
-                assume the PTA model is a fixed gamma and take it from there. Defaults to None.
-            bin_covariance (bool): Whether to use pair covariance. Defaults to False.
-            return_pair_vals (bool): Whether to return the xi, rho, sig, C values. Defaults to True.
-            use_tqdm (bool): Whether to use a progress bar. Defaults to True.
-
-        Raises:
-            ValueError: If params is None and to la_forge core is set.
-            ValueError: If Noise Marginalization is attempted without a La forge core.
-            os_ex.NMOSInteruptError: If the noise marginalization iterations are interupted.
-
-        Returns:
-            Return values are very different depending on which options you choose.
-            
-            Values marked with a * are floats while every other return is an np.array.
-            If N=1 and return_pair_vals=False:
-                - returns A2*, A2S*
-            If N=1 and return_pair_vals=True:
-                - returns xi, rho, sig, C, A2*, A2S*
-            If N>1 and return_pair_vals=False:
-                - returns A2, A2S, param_index
-            If N>1 and return_pair_vals=True:
-                - returns xi, rho, sig, C, A2, A2S, param_index
-            
-            A2 (np.ndarray/float) - The OS amplitude estimators at 1/yr
-            A2s (np.ndarray/float) - The 1-sigma uncertainties of A2
-            xi (np.ndarray) - The pair separations of the pulsars
-            rho (np.ndarray) - The pair correlated powers
-            sig (np.ndarray) - The pair uncertainties in rho
-            C (np.ndarray) - The pair covariance matrix (either a vector or matrix)
-            param_index (np.ndarray) - The index of the parameter vectors used in NM each iteration
-        """
-        pass
 
 
     def compute_PFOS(self, params=None, N=1, pair_covariance=False, narrowband=False, 
@@ -560,6 +496,7 @@ class OptimalStatistic:
             Ck (np.ndarray) - The pair covariance matrix for each frequency number k
             param_index (np.ndarray) - The index of the parameter vectors used in each NM iteration
         """
+
         if N==1:
             if params is None and self.lfcore is None:
                 msg = "No parameters given and no chain files to default to!"
@@ -597,15 +534,15 @@ class OptimalStatistic:
             self.nmos_iterations['Ck'] = []
 
         try:
-            # I would parallelize this, but unfortunately I can't pickle an OS++ object
-            # due to the pta requirement. If I could pickle a PTA, it would be trivial!
-            for iter in tqdm(range(N)) if use_tqdm else range(N):
+            iterable = tqdm(range(N),desc='NM Iterations') if use_tqdm else range(N)
+
+            for iter in iterable:
                 rand_i = np.random.random_integers(self.lfcore.burn, self.lfcore.chain.shape[0]-1)
                 params = {p:v for p,v in zip(self.lfcore.params,self.lfcore.chain[rand_i])}
                 pars = utils.freespec_param_fix(params, self.gwb_name)
                 
                 rhok,sigk,Ck,Sk,Sks = self._compute_pfos_iteration(pars, narrowband, pair_covariance, 
-                                                                   False)
+                                                                   use_tqdm)
                         
                 self.nmos_iterations['Sk'].append(Sk)
                 self.nmos_iterations['Sks'].append(Sks)
@@ -742,7 +679,7 @@ class OptimalStatistic:
             params (dict): A dictionary of parameter values for the PTA.
             phihat (numpy.ndarray): The unit-model spectrum to evaluate the OS with.
             pair_covariance (bool): Whether to use pair covariance in the solving.
-            use_tqdm (bool): Whether to use a TQDM progress bar.
+            use_tqdm (bool): Whether to use a progress bar.
 
         Returns:
             rho_ab (numpy.ndarray): The pairwise correlated powers.
@@ -751,7 +688,6 @@ class OptimalStatistic:
             A2 (numpy.ndarray): The \hat{A}^2 of the GWB.
             A2s (numpy.ndarray): The uncertainty or covariance matrix in Sk for each frequency.
         """
-        
         X,Z = self._compute_XZ(params)
         rho_ab, sig_ab = self._compute_rho_sig(X,Z,phihat)
 
@@ -806,7 +742,7 @@ class OptimalStatistic:
             params (dict): A dictionary of parameter values for the PTA.
             narrowband (bool): Whether to use the narrowband-normalized PFOS instead.
             pair_covariance (bool): Whether to use pair covariance in the solving.
-            use_tqdm (bool): Whether to use a TQDM progress bar.
+            use_tqdm (bool): Whether to use a progress bar.
 
         Returns:
             rho_abk (numpy.ndarray): The pairwise correlated powers for each frequency.
@@ -827,7 +763,10 @@ class OptimalStatistic:
         else:
             Ck = np.zeros( (self.nfreq,self.npairs) )
 
-        for k in range(self.nfreq) if not use_tqdm else tqdm(range(self.nfreq)):
+        iterable = tqdm(range(self.nfreq),desc='Frequencies',leave=False) \
+            if use_tqdm else range(self.nfreq)
+
+        for k in iterable:
             sk = phi[2*k]
 
             phi1 = np.zeros( shape=(len(self.freqs)) )  
@@ -842,11 +781,11 @@ class OptimalStatistic:
                     # MCOS
                     C = pc._compute_mcos_pair_covariance(Z, phi1, phi2, self._orf_matrix, 
                             self.orf_design_matrix, rho_abk[k], sig_abk[k], norm_abk[k], sk,
-                            False, self._max_chunk)
+                            use_tqdm, self._max_chunk)
                 else:
                     # Single component
                     C = pc._compute_pair_covariance(Z, phi1, phi2, 
-                            self._orf_matrix[0], norm_abk[k], sk, False, self._max_chunk)
+                            self._orf_matrix[0], norm_abk[k], sk, use_tqdm, self._max_chunk)
             else:
                 solve_method='diagonal'
                 C = sig_abk[k]**2
