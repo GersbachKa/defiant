@@ -3,6 +3,7 @@ from . import custom_exceptions as os_ex
 from . import utils
 from . import pair_covariance as pc 
 from . import null_distribution as os_nu
+from . import orf_functions
 
 import numpy as np
 import scipy.linalg as sl
@@ -11,10 +12,9 @@ import enterprise.signals as ent_sig
 from enterprise.pulsar import BasePulsar
 
 from enterprise.signals.utils import powerlaw
-from enterprise_extensions import model_orfs
 from la_forge.core import Core
 
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from warnings import warn
 
 
@@ -28,19 +28,21 @@ class OptimalStatistic:
     NOTE: This class does not currently support PTAs with varied white noise parameters
 
     Attributes:
-        pta: The enterprise.signals.signal_base.PTA object for the pulsar timing array.
-        psrs: A list of enterprise.pulsar.BasePulsar objects for the pulsars in the PTA.
-        npsr: The number of pulsars in the PTA.
-        gwb_name: The name of the GWB signal in the PTA.
-        lfcore: A la_forge.core.Core object for noise marginalization.
-        max_like_params: The maximum likelihood parameters for the PTA.
-        freqs: The frequencies of the PTA.
-        npairs: The number of pulsar pairs in the PTA.
-        pair_names: A list of the names of the pulsar pairs.
-        norfs: The number of overlap reduction functions.
-        orf_design_matrix: The design matrix for the ORFs.
-        orf_names: The names of the ORFs.
-        nmos_iterations: A dictionary of the NMOS iterations.
+        psrs (list): A list of enterprise.pulsar.BasePulsar objects.
+        pta (enterprise.signals.signal_base.PTA): A PTA object.
+        gwb_name (str): The name of the GWB in the PTA object.
+        lfcore (la_forge.core.Core): A la_forge.core.Core object.
+        max_like_params (dict): The maximum likelihood parameters from the chain.
+        freqs (np.ndarray): The frequencies of the PTA.
+        npair (int): The number of pulsar pairs.
+        norfs (int): The number of overlap reduction functions.
+        orf_design_matrix (np.ndarray): The design matrix of the ORFs.
+        _orf_matrix (np.ndarray): A pulsar matrix of ORF values.
+        orf_names (list): The names of the ORFs.
+        nmos_iterations (dict): A dictionary of the NMOS iterations.
+        _max_chunk (int): The maximum number of simultaneous matrix products.
+        _marginalizing_timing_model (bool): Whether the PTA is marginalizing the timing model.
+        _cache (dict): A dictionary of cached matrix products
     """
 
     def __init__(self, psrs, pta, gwb_name='gw', core_path=None, core=None,  
@@ -110,6 +112,7 @@ class OptimalStatistic:
         self.npairs = len(self.pair_names)
 
         self.norfs = 1
+        self.orf_functions = []
         self.orf_design_matrix, self._orf_matrix, self.orf_names = None, None, None
         self.set_orf(orfs, orf_names)
 
@@ -178,30 +181,31 @@ class OptimalStatistic:
         corresponding ORF design matrix. This function supports multiple ORFs by
         simply supplying a list of ORFs. orf_names can be left as None to use default
         names. orfs can also be a user-defined function which accepts 2 
-        enterprise.pulsar.BasePulsar. Otherwise, use one of the following pre-defined
-        ORF names:
-            'hd' - Hellings and Downs
-            'dipole' - Dipole
-            'monopole' - Monopole
-            'gw_dipole' - Gravitational wave dipole
-            'gw_monopole' - Gravitational wave monopole
-            'st' - Scalar tensor
+        enterprise.pulsar.BasePulsar. 
+        
+        Otherwise, use one of the following pre-defined ORF within 
+        defiant.orf_functions.defined_orfs:
+            - 'hd' or 'hellingsdowns': Hellings and Downs
+            - 'dp' or 'dipole': Dipole
+            - 'mp' or 'monopole': Monopole
+            - 'gwdp' or 'gw_dipole': Gravitational wave dipole
+            - 'gwmp' or 'gw_monopole': Gravitational wave monopole
+            - 'st' or 'scalar_tensor': Scalar tensor
 
         Args:
-            orfs (list, optional): An ORF string, list of strings, or function. 
-                    Note that a custom function must accept two enterprise.pulsar.BasePulsar
-                    objects as inputs and outputs a float for their ORF.
+            orfs (str or function or list): An ORF string, function or list of 
+                    strings and/or functions. Note that a custom function must 
+                    accept two enterprise.pulsar.BasePulsar objects as inputs 
+                    and outputs a float for their ORF.
             orf_names (list, optional): The names of the corresponding orfs. Set to None
                     for default names.
 
         Raises:
             ValueError: If the length of the orfs and orf_names does not match.
-            NameError: If a pre-defined ORF is not found.
+            ORFNotFoundError: If a pre-defined ORF is not found.
             TypeError: If the user-supplied ORF does not have correct format. 
         """
-        # TODO: Better utilize the names of the ORFs
-
-        if not hasattr(orfs, '__getitem__'):
+        if not hasattr(orfs, '__iter__'):
             orfs = [orfs]
         elif type(orfs) == str:
             orfs = [orfs]
@@ -220,41 +224,22 @@ class OptimalStatistic:
         self.orf_names = []
         # Used internal and external
         self.orf_design_matrix = np.zeros( (self.norfs,self.npairs) ) 
-        # Used for pair covariance
+        # Used internal for pair covariance
         self._orf_matrix = np.ones( (self.norfs,self.npsr,self.npsr) ) 
 
         for i in range( len(orfs) ):
             orf = orfs[i]
-            name = orf[i]
+            name = orfs[i]
 
             if type(orf) == str:
-                # ORF must be one of the built-in functions
-                if orf.lower() == 'hd':
-                    cur_orf = model_orfs.hd_orf
-                    name = 'HD' if name is None else name
-                elif orf.lower() == 'dipole':
-                    cur_orf = model_orfs.dipole_orf
-                    name = 'Dipole' if name is None else name
-                elif orf.lower() == 'monopole':
-                    cur_orf = model_orfs.monopole_orf
-                    name = 'Monopole' if name is None else name
-                elif orf.lower() == 'gw_dipole':
-                    cur_orf = model_orfs.gw_dipole_orf
-                    name = 'GW_Dipole' if name is None else name
-                elif orf.lower() == 'gw_monopole':
-                    cur_orf = model_orfs.gw_monopole_orf
-                    name = 'GW_Monopole' if name is None else name
-                elif orf.lower() == 'st':
-                    cur_orf = model_orfs.st_orf
-                    name = 'Scalar tensor' if name is None else name
-                else:
-                    msg = f"Unknown ORF name: '{orf}'. Check the documentation " +\
-                           "for pre-programmed ORFs or supply your own."
-                    raise NameError(msg)
+                # ORF must be pre-defined function
+                cur_orf = orf_functions.get_orf_function(orf)
+                name = orf if name is None else name
                 
                 self.orf_names.append(name)
+                self.orf_functions.append(cur_orf)
                 for j,(a,b) in enumerate(self._pair_idx):
-                    v = cur_orf(self.psrs[a].pos , self.psrs[b].pos)
+                    v = cur_orf(self.psrs[a] , self.psrs[b])
                     self.orf_design_matrix[i,j] = v
                     self._orf_matrix[i,a,b] = v
                     self._orf_matrix[i,b,a] = v
@@ -262,7 +247,9 @@ class OptimalStatistic:
             else:
                 # ORF is user supplied function
                 name = orf.__name__ if name is None else name
+
                 self.orf_names.append(name)
+                self.orf_functions.append(orf)
                 try:
                     for j,(a,b) in enumerate(self._pair_idx):
                         v = orf(self.psrs[a], self.psrs[b])
@@ -288,8 +275,9 @@ class OptimalStatistic:
         can compute any flavor of the OS which uses broadband estimation (i.e. constructs
         a single estimator for the whole spectrum). There are many forms in which you can
         use this function, and checking the decision tree is best for determining exactly
-        what you might want and what parameters to set to accomplish that. The basic
-        usage of this function can be boiled down to the following:
+        what you might want and what parameters to set to accomplish that. 
+        
+        The basic usage of this function can be boiled down to the following:
         If you want to compute a single iteration of the OS:
             - supply a set of params and set N=1. By default, if params=None, this 
               will compute the maximum likelihood OS.
@@ -342,7 +330,7 @@ class OptimalStatistic:
             param_index (np.ndarray) - The index of the parameter vectors used in NM each iteration
         """
         # TODO: return gamma values used in some form as well!
-        
+
         if N==1:
             if params is None and self.lfcore is None:
                 msg = "No parameters given and no chain files to default to!"
@@ -372,8 +360,8 @@ class OptimalStatistic:
             
             xi,_ = utils.compute_pulsar_pair_separations(self.psrs, self._pair_idx)
 
-            rho, sig, C, A2, A2s = self._compute_os_iteration(pars, phihat,
-                                                    pair_covariance, use_tqdm)
+            rho, sig, C, A2, A2s = self._compute_os_iteration(pars, phihat, pair_covariance, 
+                                                              use_tqdm)
             
             if return_pair_vals:
                 xi,_ = utils.compute_pulsar_pair_separations(self.psrs, self._pair_idx)
@@ -395,9 +383,9 @@ class OptimalStatistic:
             self.nmos_iterations['sig'] = []
             self.nmos_iterations['C'] = []
         try:
-            # I would parallelize this, but unfortunately I can't pickle an OS++ object
-            # due to the pta requirement. If I could pickle a PTA, it would be trivial!
-            for iter in tqdm(range(N)) if use_tqdm else range(N):
+            iterable = tqdm(range(N),desc='NM Iterations') if use_tqdm  else range(N)
+        
+            for iter in iterable:
                 rand_i = np.random.random_integers(self.lfcore.burn, self.lfcore.chain.shape[0]-1)
                 params = {p:v for p,v in zip(self.lfcore.params,self.lfcore.chain[rand_i])}
                 
@@ -416,8 +404,8 @@ class OptimalStatistic:
                     g = utils.get_fixed_gwb_gamma(self.pta, self.gwb_name)
                     phihat = powerlaw(np.repeat(self.freqs,2), 0, g)
                 
-                rho,sig,C,A2,A2s = self._compute_os_iteration(pars, phihat, 
-                                                        pair_covariance, False)
+                rho,sig,C,A2,A2s = self._compute_os_iteration(pars, phihat, pair_covariance, 
+                                                              use_tqdm)
 
                 self.nmos_iterations['A2'].append(A2)
                 self.nmos_iterations['A2s'].append(A2s)
@@ -448,7 +436,7 @@ class OptimalStatistic:
         return A2, A2s, param_index
 
 
-    def compute_PFOS(self, params=None, N=1, pair_covariance=False, narrowband=False,
+    def compute_PFOS(self, params=None, N=1, pair_covariance=False, narrowband=False, 
                      return_pair_vals=True, use_tqdm=True):
         """Compute the PFOS and its various modifications.
 
@@ -456,8 +444,9 @@ class OptimalStatistic:
         can computes the different flavors of the PFOS (i.e. a free-spectrum search). 
         There are many forms in which you can use this function, and checking the 
         decision tree is best for determining exactly what you might want and what 
-        parameters to set to accomplish that. The basic usage of this function can 
-        be boiled down to the following:
+        parameters to set to accomplish that. 
+
+        The basic usage of this function can be boiled down to the following:
         If you want to compute a single iteration of the PFOS:
             - supply a set of params and set N=1. By default, if params=None, this 
               will compute the maximum likelihood PFOS.
@@ -507,6 +496,7 @@ class OptimalStatistic:
             Ck (np.ndarray) - The pair covariance matrix for each frequency number k
             param_index (np.ndarray) - The index of the parameter vectors used in each NM iteration
         """
+
         if N==1:
             if params is None and self.lfcore is None:
                 msg = "No parameters given and no chain files to default to!"
@@ -521,7 +511,7 @@ class OptimalStatistic:
 
             pars = utils.freespec_param_fix(params,self.gwb_name)
             rhok,sigk,Ck,Sk,Sks = self._compute_pfos_iteration(pars, narrowband, 
-                                                        pair_covariance, use_tqdm)
+                                            pair_covariance, use_tqdm)
             
             if return_pair_vals:
                 xi,_ = utils.compute_pulsar_pair_separations(self.psrs,self._pair_idx)
@@ -544,15 +534,15 @@ class OptimalStatistic:
             self.nmos_iterations['Ck'] = []
 
         try:
-            # I would parallelize this, but unfortunately I can't pickle an OS++ object
-            # due to the pta requirement. If I could pickle a PTA, it would be trivial!
-            for iter in tqdm(range(N)) if use_tqdm else range(N):
+            iterable = tqdm(range(N),desc='NM Iterations') if use_tqdm else range(N)
+
+            for iter in iterable:
                 rand_i = np.random.random_integers(self.lfcore.burn, self.lfcore.chain.shape[0]-1)
                 params = {p:v for p,v in zip(self.lfcore.params,self.lfcore.chain[rand_i])}
                 pars = utils.freespec_param_fix(params, self.gwb_name)
                 
-                rhok,sigk,Ck,Sk,Sks = self._compute_pfos_iteration(pars, narrowband,
-                                                            pair_covariance, False)
+                rhok,sigk,Ck,Sk,Sks = self._compute_pfos_iteration(pars, narrowband, pair_covariance, 
+                                                                   use_tqdm)
                         
                 self.nmos_iterations['Sk'].append(Sk)
                 self.nmos_iterations['Sks'].append(Sks)
@@ -689,7 +679,7 @@ class OptimalStatistic:
             params (dict): A dictionary of parameter values for the PTA.
             phihat (numpy.ndarray): The unit-model spectrum to evaluate the OS with.
             pair_covariance (bool): Whether to use pair covariance in the solving.
-            use_tqdm (bool): Whether to use a TQDM progress bar.
+            use_tqdm (bool): Whether to use a progress bar.
 
         Returns:
             rho_ab (numpy.ndarray): The pairwise correlated powers.
@@ -698,18 +688,18 @@ class OptimalStatistic:
             A2 (numpy.ndarray): The \hat{A}^2 of the GWB.
             A2s (numpy.ndarray): The uncertainty or covariance matrix in Sk for each frequency.
         """
-        
         X,Z = self._compute_XZ(params)
         rho_ab, sig_ab = self._compute_rho_sig(X,Z,phihat)
 
         if pair_covariance:
-            solve_method='pinv'
+            solve_method='woodbury'
+
             if self.lfcore is not None and self.gwb_name+'_log10_rho_0' in self.lfcore.params:
                 param_cov = utils.freespec_covariance(self.lfcore,self.gwb_name)
             else:
                 param_cov = np.diag(np.ones_like(self.freqs))
 
-            a2_est = utils.fit_a2_from_params(params, model_phi=phihat[::2], cov=param_cov)
+            a2_est = utils.fit_a2_from_params(params, gwb_name=self.gwb_name, model_phi=phihat[::2], cov=param_cov)
 
             if self.norfs>1:
                 # MCOS
@@ -718,8 +708,10 @@ class OptimalStatistic:
                         np.square(sig_ab), a2_est, use_tqdm, self._max_chunk)
             else:
                 # Single component
+                # Splits the covariance matrix into diagonal and off-diagonal elements
                 C = pc._compute_pair_covariance(Z, phihat, phihat, 
                         self._orf_matrix[0], np.square(sig_ab), a2_est, use_tqdm, self._max_chunk)
+             
         else:
             solve_method='diagonal'
             C = np.square(sig_ab)
@@ -729,6 +721,9 @@ class OptimalStatistic:
         
         A2 = np.squeeze(A2) if self.norfs>1 else A2.item()
         A2s = np.squeeze(A2s) if self.norfs>1 else np.sqrt(A2s.item())
+
+        if pair_covariance:
+            C = C[0]+C[1]
 
         return rho_ab, sig_ab, C, A2, A2s
 
@@ -747,7 +742,7 @@ class OptimalStatistic:
             params (dict): A dictionary of parameter values for the PTA.
             narrowband (bool): Whether to use the narrowband-normalized PFOS instead.
             pair_covariance (bool): Whether to use pair covariance in the solving.
-            use_tqdm (bool): Whether to use a TQDM progress bar.
+            use_tqdm (bool): Whether to use a progress bar.
 
         Returns:
             rho_abk (numpy.ndarray): The pairwise correlated powers for each frequency.
@@ -768,7 +763,10 @@ class OptimalStatistic:
         else:
             Ck = np.zeros( (self.nfreq,self.npairs) )
 
-        for k in range(self.nfreq) if not use_tqdm else tqdm(range(self.nfreq)):
+        iterable = tqdm(range(self.nfreq),desc='Frequencies',leave=False) \
+            if use_tqdm else range(self.nfreq)
+
+        for k in iterable:
             sk = phi[2*k]
 
             phi1 = np.zeros( shape=(len(self.freqs)) )  
@@ -778,23 +776,27 @@ class OptimalStatistic:
             phi2 = phi / sk
 
             if pair_covariance:
-                solve_method = 'pinv'
+                solve_method = 'woodbury'
                 if self.norfs>1:
                     # MCOS
-                    Ck[k] = pc._compute_mcos_pair_covariance(Z, phi1, phi2, self._orf_matrix, 
-                            self.orf_design_matrix, rho_abk[k], sig_abk[k], norm_abk[k], sk, 
-                            False, self._max_chunk)
+                    C = pc._compute_mcos_pair_covariance(Z, phi1, phi2, self._orf_matrix, 
+                            self.orf_design_matrix, rho_abk[k], sig_abk[k], norm_abk[k], sk,
+                            use_tqdm, self._max_chunk)
                 else:
                     # Single component
-                    Ck[k] = pc._compute_pair_covariance(Z, phi1, phi2, 
-                            self._orf_matrix[0], norm_abk[k], sk, False, self._max_chunk)
+                    C = pc._compute_pair_covariance(Z, phi1, phi2, 
+                            self._orf_matrix[0], norm_abk[k], sk, use_tqdm, self._max_chunk)
             else:
                 solve_method='diagonal'
-                Ck[k] = sig_abk[k]**2
+                C = sig_abk[k]**2
         
-            s, ssig = utils.linear_solve(self.orf_design_matrix, Ck[k], 
+            s, ssig = utils.linear_solve(self.orf_design_matrix, C, 
                                          rho_abk[k,:,None], solve_method)
             
+            if pair_covariance:
+                Ck[k] = C[0]+C[1]
+            else:
+                Ck[k] = C
             Sk[k] = np.squeeze(s) if self.norfs>1 else s.item()
             Sks[k] = np.squeeze(ssig) if self.norfs>1 else np.sqrt(ssig.item()) 
 

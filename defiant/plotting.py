@@ -3,6 +3,7 @@ from matplotlib import pyplot as plt
 from scipy.stats import binom
 import numpy as np
 from . import utils
+from .orf_functions import get_orf_function
 
 
 def create_correlation_plot(xi,rho,sig,C,A2,A2s,bins=10,orf=['hd'],eig_thresh=1e-10,
@@ -15,14 +16,15 @@ def create_correlation_plot(xi,rho,sig,C,A2,A2s,bins=10,orf=['hd'],eig_thresh=1e
     frequency's rho, sig, C, A2, and A2s]. This function DOES support the multi-component
     optimal statistic and pair covariance, however, if using both, the binned correlation
     estimators will only be calculated using the first element of orf. This function
-    also only works for pre-implemented ORFs in enterprise_extensions.
-    These ORFs are:
-        'hd' - Hellings and downs
-        'dipole' - Dipole
-        'monopole' - Monopole
-        'gw_dipole' - Gravitational wave dipole
-        'gw_monopole' - Gravitational wave monopole
-        'st' - Scalar tensor
+    also only works for pre-implemented ORFs in defiant.orf_functions.defined_orfs
+
+    The list of pre-defined orfs are:
+        - 'hd' or 'hellingsdowns': Hellings and Downs
+        - 'dp' or 'dipole': Dipole
+        - 'mp' or 'monopole': Monopole
+        - 'gwdp' or 'gw_dipole': Gravitational wave dipole
+        - 'gwmp' or 'gw_monopole': Gravitational wave monopole
+        - 'st' or 'scalar_tensor': Scalar tensor
 
     Args:
         xi (_type_): _description_
@@ -38,9 +40,7 @@ def create_correlation_plot(xi,rho,sig,C,A2,A2s,bins=10,orf=['hd'],eig_thresh=1e
     Returns:
         _type_: _description_
     """
-    try: # Check if orf is a list
-        _ = orf[0]
-    except:
+    if not hasattr(orf,'__iter__'):
         orf = [orf]
 
     fig, ax = plt.subplots(**subplot_kwargs)
@@ -54,21 +54,20 @@ def create_correlation_plot(xi,rho,sig,C,A2,A2s,bins=10,orf=['hd'],eig_thresh=1e
         xia,rhoa,siga = utils.binned_pair_correlations(xi,rho,sig,bins,orf)
     
     # Plot correlations
-    ax.errorbar(xia,rhoa,siga,fmt='oC0',label='Binned Correlations')
+    ax.errorbar(xia,rhoa,siga,fmt='oC0',label='Binned Correlations',capsize=3)
 
     xi_range = np.linspace(0,np.pi,1002)[1:-1] # Avoid 0 and pi
 
-    if len(np.array(A2).shape)>1:
+    if len(A2)>1:
         # Multi-component
-        clipped = utils.clip_covariance(A2s,eig_thresh)
-        means,mean_sig = utils.calculate_mean_sigma_for_MCOS(xi_range,A2,clipped,orf)
+        means,mean_sig = utils.calculate_mean_sigma_for_MCOS(xi_range,A2,A2s,orf,clip_thresh=eig_thresh)
         # Plot the means
         ax.plot(xi_range, means, 'C1', label='$A^2$ Fit')
         ax.fill_between(xi_range, means-mean_sig, means+mean_sig, color='C1', alpha=0.1)
 
     else:
         # Single component
-        orf_mod = utils.orf_xi(xi_range,orf[0])
+        orf_mod = get_orf_function(orf[0])(xi_range)
         ax.plot(xi_range, A2*orf_mod, 'C1', label='$A^2$ Fit')
         ax.fill_between(xi_range, (A2-A2s)*orf_mod, (A2+A2s)*orf_mod, color='C1', alpha=0.1)    
 

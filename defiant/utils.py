@@ -5,6 +5,7 @@ from scipy.stats import multivariate_normal
 from scipy.linalg import cho_factor, cho_solve
 
 from .custom_exceptions import *
+from .orf_functions import get_orf_function, get_pulsar_separation
 
 
 def linear_solve(X,C,r,method=None):
@@ -79,11 +80,11 @@ def linear_solve(X,C,r,method=None):
             # Woodbury method requires C to have shape [2 x N_pairs x N_pairs]
             if C.shape[0] != 2 or C.shape[1] != C.shape[2]:
                 raise ValueError('Woodbury method requires C to have shape [2 x N_pairs x N_pairs]')
-            S = np.diag(1/np.diag(C[0]))
+            S = np.diag(C[0]) # Convert to diagonal array
             K = C[1]
             I_n = np.eye(S.shape[0])
         
-            ainv = np.diag(1/np.diag(S))
+            ainv = np.diag(1/S) # Invert diagonal matrix, then convert to square
             Kainv = K@ainv
             cinv = ainv - ainv @ np.linalg.solve(I_n + Kainv, Kainv)
 
@@ -233,7 +234,6 @@ def fit_a2_from_params(params, pta=None, gwb_name='gw', model_phi=None, cov=None
     Returns:
         float: The estimated square amplitude of the GWB.
     """
-    
     # Check if the amplitude is in the params!
     if gwb_name+'_log10_A' in params:
         return 10**(2*params[gwb_name+'_log10_A'])
@@ -316,13 +316,13 @@ def binned_pair_correlations(xi, rho, sig, bins=10, orf='hd'):
     this function will assume you have supplied a pair covariance matrix and will use
     equation [35] from Gersbach et al. 2024. Also note that orf can be replaced with 
     a custom function which must accept pulsar positions (cartesian) as its only 2 arguments.
-    Predefined orf names are:
-        'hd' - Hellings and downs
-        'dipole' - Dipole
-        'monopole' - Monopole
-        'gw_dipole' - Gravitational wave dipole
-        'gw_monopole' - Gravitational wave monopole
-        'st' - Scalar tensor
+    The pre-defined ORFs found in defiant.orf_functions.defined_orfs are:
+        - 'hd' or 'hellingsdowns': Hellings and Downs
+        - 'dp' or 'dipole': Dipole
+        - 'mp' or 'monopole': Monopole
+        - 'gwdp' or 'gw_dipole': Gravitational wave dipole
+        - 'gwmp' or 'gw_monopole': Gravitational wave monopole
+        - 'st' or 'scalar_tensor': Scalar tensor
 
     Args:
         xi (numpy.ndarray): A vector of pulsar pair separations
@@ -351,22 +351,25 @@ def binned_pair_correlations(xi, rho, sig, bins=10, orf='hd'):
     
 
     if len(sig.shape)>1:
+        # Pair covariant
+        orf_func = get_orf_function(orf)
         for i in range(bins):
             #Mask and select range of values to average
             l,h = int(ranges[i]), int(ranges[i+1])
             subXi = (xi[sortMask])[l:h]
             subRho = (rho[sortMask])[l:h]
             subSig = (sig[sortMask,:][:,sortMask])[l:h,l:h]
-            subORF = orf_xi(subXi,orf)[:,None]
+            subORF = orf_func(subXi)[:,None]
 
             r,s2 = linear_solve(subORF,subSig,subRho,'pinv')
 
             xiavg[i] = np.average(subXi)
-            bin_orf = orf_xi(xiavg[i],orf)
+            bin_orf = orf_func(xiavg[i])
             rhoavg[i] = bin_orf * r
             sigavg[i] = np.abs(bin_orf)*np.sqrt(s2)
 
     else:
+        # Non pair covariant
         for i in range(bins):
             #Mask and select range of values to average
             subXi = xi[sortMask]
@@ -382,77 +385,24 @@ def binned_pair_correlations(xi, rho, sig, bins=10, orf='hd'):
             rhoavg[i] = np.sum(subRho/subSigSquare)/np.sum(1/subSigSquare)
             sigavg[i] = 1/np.sqrt(np.sum(1/subSigSquare))
     
-    return xiavg,rhoavg,sigavg
-
-
-def orf_xi(xi, orf='hd'):
-    """A function to turn pulsar separations into correlations using a set ORF
-
-    Given a pulsar separation or separations, compute the correlation factor
-    for that separation and given overlap reduction function. Note that orf can be 
-    replaced with a custom function which must accept pulsar positions (cartesian) 
-    as its only 2 arguments.
-    Predefined orf names are:
-        'hd' - Hellings and downs
-        'dipole' - Dipole
-        'monopole' - Monopole
-        'gw_dipole' - Gravitational wave dipole
-        'gw_monopole' - Gravitational wave monopole
-        'st' - Scalar tensor
-
-    Args:
-        xi (numpy.ndarray or float): A vector or float of pulsar pair separation(s)
-        orf (str, function): The name of a predefined ORF function or custom function 
-
-    Raises:
-        ValueError: If given a string of an unrecognized ORF
-
-    Returns:
-        _type_: correlation(s) for the pair separation(s)
-    """
-    if type(orf) == str:
-        from enterprise_extensions import model_orfs
-        if orf.lower() == 'hd':
-            orf_func = model_orfs.hd_orf
-        elif orf.lower() == 'dipole':
-            orf_func = model_orfs.dipole_orf
-        elif orf.lower() == 'monopole':
-            orf_func = model_orfs.monopole_orf
-        elif orf.lower() == 'gw_dipole':
-            orf_func = model_orfs.gw_dipole_orf
-        elif orf.lower() == 'gw_monopole':
-            orf_func = model_orfs.gw_monopole_orf
-        elif orf.lower() == 'st':
-            orf_func = model_orfs.st_orf
-        else:
-            raise ValueError(f"Undefined ORF name '{orf}'")
-        orf_func
-    else:
-        orf_func = orf
-    
-    orf_lamb = lambda x: orf_func([1,0,0], [np.cos(x),np.sin(x),0])
-
-    if np.array(xi).size>1:
-        return np.array([orf_lamb(x) for x in xi])
-    else:
-        return orf_lamb(xi)    
+    return xiavg,rhoavg,sigavg  
 
 
 def calculate_mean_sigma_for_MCOS(xi, A2, A2_cov, orfs=['hd','dipole','monopole'], 
-                                  n_samples=1000):
+                                  n_samples=1000, clip_thresh=1e-10):
     """Calculate the mean and sigma of the total MCOS fit for a given xi.
 
     For a given pulsar pair separation, xi (can be a vector of xi), this function
     will calculate the mean and sigma of the total correlated power for a given
     MCOS fit A2 vector and A2_cov covariance matrix. You will also need to supply
     the ORFs you want to use in the calculation. 
-    Predefined orf names are:
-        'hd' - Hellings and downs
-        'dipole' - Dipole
-        'monopole' - Monopole
-        'gw_dipole' - Gravitational wave dipole
-        'gw_monopole' - Gravitational wave monopole
-        'st' - Scalar tensor
+    The pre-defined ORFs found in defiant.orf_functions.defined_orfs are:
+        - 'hd' or 'hellingsdowns': Hellings and Downs
+        - 'dp' or 'dipole': Dipole
+        - 'mp' or 'monopole': Monopole
+        - 'gwdp' or 'gw_dipole': Gravitational wave dipole
+        - 'gwmp' or 'gw_monopole': Gravitational wave monopole
+        - 'st' or 'scalar_tensor': Scalar tensor
 
     Args:
         xi (numpy.ndarray): A vector of pulsar pair separations
@@ -460,13 +410,16 @@ def calculate_mean_sigma_for_MCOS(xi, A2, A2_cov, orfs=['hd','dipole','monopole'
         A2_cov (numpy.ndarray): A covariance matrix between A^2 values
         orfs (list, optional): A list of ORFs to use (either names or custom functions).
         n_samples (int): The number of samples of the fit to generate. Defaults to 1000.
+        clip_thresh (float): The threshold to clip the covariance matrix if needed. Defaults to 1e-10.
     
     Returns:
         (np.ndarray,np.ndarray): The corresponding mean and 1-sigma standard deviation.
     """
-    norm = multivariate_normal(mean=A2,cov=A2_cov,allow_singular=True)
+    clipped = clip_covariance(A2_cov,clip_thresh)
+    norm = multivariate_normal(mean=A2,cov=clipped,allow_singular=True)
     rvs = norm.rvs(size=n_samples)
-    orf_mods = [orf_xi(xi, o) for o in orfs]
+
+    orf_mods = [get_orf_function(o)(xi) for o in orfs]
 
     mod_vals = []
     for A2 in rvs:
@@ -561,7 +514,7 @@ def uncertainty_sample(A2,A2s,pfos=False,mcos=False,n_usamples=100):
     return all_A2
 
             
-def clip_covariance(cov, eig_thresh=1e-30):
+def clip_covariance(cov, eig_thresh=1e-10):
     """A function to clip the small or negative eigenvalues of a covariance matrix
 
     This function is to fix some minor numerical problems with some covariance matrices
@@ -590,4 +543,33 @@ def clip_covariance(cov, eig_thresh=1e-30):
         return new_cov
     
     return cov
+
+
+def chi_square(rho, sig, design_mat, a2):
+    """A function to calculate the chi-square value of a model fit
+
+    Args:
+        rho (np.ndarray): The data vector [N]
+        sig (np.ndarray): The uncertainty or covariance in the data vector [N] or [N x N]
+        design_mat (np.ndarray): The design matrix [N x M]
+        a2 (np.ndarray): The model vector [M]
+
+    Returns:
+        float: The floating point chi-square value
+    """
+    if sig.ndim == 1:
+        sig = np.diag(1/sig**2)
+    if a2.ndim == 1:
+        a2 = a2[:,None]
+    if design_mat.ndim == 1:
+        design_mat = design_mat[:,None]
+    if rho.ndim == 1:
+        rho = rho[:,None]
+    
+    model = design_mat @ a2
+    residuals = (rho - model)
+
+    chi2 = residuals.T @ sig @ residuals
+    return chi2.item()
+
 
