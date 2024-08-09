@@ -58,7 +58,7 @@ def create_correlation_plot(xi,rho,sig,C,A2,A2s,bins=10,orf=['hd'],eig_thresh=1e
 
     xi_range = np.linspace(0,np.pi,1002)[1:-1] # Avoid 0 and pi
 
-    if len(np.array(A2).shape)>1:
+    if len(A2)>1:
         # Multi-component
         means,mean_sig = utils.calculate_mean_sigma_for_MCOS(xi_range,A2,A2s,orf,clip_thresh=eig_thresh)
         # Plot the means
