@@ -79,6 +79,9 @@ def _compute_mcos_pair_covariance(Z, phi1, phi2, orf, design,
     temp_c = np.square(sig_ab)
     mcos,_ = linear_solve(design,temp_c,rho_ab,'diagonal')
 
+    # Set negative values to 0
+    mcos[mcos<0] = 0
+
     # Normalize the power per process
     norm_pow = mcos/np.sqrt(np.dot(mcos,mcos))
     est_pow = a2_est*norm_pow
