@@ -113,7 +113,10 @@ class OptimalStatistic:
 
         self.norfs = 1
         self.orf_functions = []
-        self.orf_design_matrix, self._orf_matrix, self.orf_names = None, None, None
+        self.orf_design_matrix = None
+        self._orf_matrix = None
+        self._mcos_orf = None
+        self.orf_names = None
         self.set_orf(orfs, orf_names)
 
         self.nmos_iterations = {}
@@ -174,7 +177,7 @@ class OptimalStatistic:
             self.max_like_params = utils.get_max_like_params(self.lfcore)
 
 
-    def set_orf(self, orfs=['hd'], orf_names=None):
+    def set_orf(self, orfs=['hd'], orf_names=None, pcmc_orf=None):
         """Sets the overlap reduction function[s] (ORF) for the cross correlations.
 
         Sets the overlap reduction function[s] of the cross correlation and the
@@ -182,7 +185,7 @@ class OptimalStatistic:
         simply supplying a list of ORFs. orf_names can be left as None to use default
         names. orfs can also be a user-defined function which accepts 2 
         enterprise.pulsar.BasePulsar. 
-        
+
         Otherwise, use one of the following pre-defined ORF within 
         defiant.orf_functions.defined_orfs:
             - 'hd' or 'hellingsdowns': Hellings and Downs
@@ -192,6 +195,20 @@ class OptimalStatistic:
             - 'gwmp' or 'gw_monopole': Gravitational wave monopole
             - 'st' or 'scalar_tensor': Scalar tensor
 
+            
+        EXPERIMENTAL FEATURE (pcmc_orf):
+        pcmc_orf is an experimental feature that aims to curb the problematic 
+        nature of pair covariance matrix with the MCOS. 
+
+        If this argument is set to None (default): 
+            - The typical behavior will be used, this being that the
+            power per process will be the normalized non-pair covariant MCOS 
+            multiplied by the CURN amplitude. 
+        If this argument is set to a str: 
+            - The pair covariance matrix will be computed using a singular ORF 
+            function specified (i.e. 'hd').
+
+        
         Args:
             orfs (str or function or list): An ORF string, function or list of 
                     strings and/or functions. Note that a custom function must 
@@ -199,6 +216,8 @@ class OptimalStatistic:
                     and outputs a float for their ORF.
             orf_names (list, optional): The names of the corresponding orfs. Set to None
                     for default names.
+            pcmc_orf (str, optional): The assumed ORF for the pair covariance matrix.
+                    when using the MCOS. Defaults to None.
 
         Raises:
             ValueError: If the length of the orfs and orf_names does not match.
@@ -265,6 +284,19 @@ class OptimalStatistic:
         # We need to make sure that it has (n_pairs x n_orfs), 
         # but we made it as (n_orf x n_pairs).
         self.orf_design_matrix = self.orf_design_matrix.T
+
+        # Additional bits for PC+MC
+        if pcmc_orf is not None:
+            orf = orf_functions.get_orf_function(pcmc_orf)
+            temp = np.zeros( (self.npsr,self.npsr) )
+            for a in range(self.npsr):
+                for b in range(a+1,self.npsr):
+                    v = orf(self.psrs[a],self.psrs[b])
+                    temp[a,b] = v
+                    temp[a,b] = v
+            self._mcos_orf = temp
+        else:
+            self._mcos_orf = None
         
 
     def compute_OS(self, params=None, N=1, gamma=None, pair_covariance=False, 
@@ -703,9 +735,15 @@ class OptimalStatistic:
 
             if self.norfs>1:
                 # MCOS
-                C = pc._compute_mcos_pair_covariance(Z, phihat, phihat, 
-                        self._orf_matrix, self.orf_design_matrix, rho_ab, sig_ab, 
-                        np.square(sig_ab), a2_est, use_tqdm, self._max_chunk)
+                if self._mcos_orf is not None:
+                    # The user has set an assumed MCOS ORF
+                    C = pc._compute_pair_covariance(Z, phihat, phihat, self._mcos_orf,
+                            np.square(sig_ab), a2_est, use_tqdm, self._max_chunk)
+                else:
+                    # Default behavior
+                    C = pc._compute_mcos_pair_covariance(Z, phihat, phihat, 
+                            self._orf_matrix, self.orf_design_matrix, rho_ab, sig_ab, 
+                            np.square(sig_ab), a2_est, use_tqdm, self._max_chunk)
             else:
                 # Single component
                 # Splits the covariance matrix into diagonal and off-diagonal elements
@@ -779,9 +817,15 @@ class OptimalStatistic:
                 solve_method = 'woodbury'
                 if self.norfs>1:
                     # MCOS
-                    C = pc._compute_mcos_pair_covariance(Z, phi1, phi2, self._orf_matrix, 
-                            self.orf_design_matrix, rho_abk[k], sig_abk[k], norm_abk[k], sk,
-                            use_tqdm, self._max_chunk)
+                    if self._mcos_orf is not None:
+                        # The user has set an assumed MCOS ORF
+                        C = pc._compute_pair_covariance(Z, phi1, phi2, self._mcos_orf,
+                                norm_abk[k], sk, use_tqdm, self._max_chunk)
+                    else:
+                        # Default behavior
+                        C = pc._compute_mcos_pair_covariance(Z, phi1, phi2, self._orf_matrix, 
+                                self.orf_design_matrix, rho_abk[k], sig_abk[k], norm_abk[k], sk,
+                                use_tqdm, self._max_chunk)
                 else:
                     # Single component
                     C = pc._compute_pair_covariance(Z, phi1, phi2, 
