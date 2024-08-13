@@ -194,7 +194,8 @@ class OptimalStatistic:
             - 'gwdp' or 'gw_dipole': Gravitational wave dipole
             - 'gwmp' or 'gw_monopole': Gravitational wave monopole
             - 'st' or 'scalar_tensor': Scalar tensor
-
+            - 'l_' or 'legendre_': Legendre polynomials where the number after 
+                    the _ is the degree
             
         EXPERIMENTAL FEATURE (pcmc_orf):
         pcmc_orf is an experimental feature that aims to curb the problematic 
@@ -297,6 +298,57 @@ class OptimalStatistic:
             self._mcos_orf = temp
         else:
             self._mcos_orf = None
+
+
+    def set_anisotropy_basis(self, basis='pixel', nside=2, lmax=6, pc_orf='hd'):
+        """A method to set the anisotropy basis for the OS.
+
+        This function sets the anisotropy basis for the OS. The basis can be either
+        a pixel basis or a spherical harmonic basis. The pixel basis is a simple
+        pixelization of the sky, while the spherical harmonic basis is a spherical
+        harmonic decomposition of the sky. If the basis is set to 'pixel', lmax is
+        ignored. For pair covariance to work correctly, an assumed ORF must be set,
+        which is done with the pc_orf argument. This must be a pre-defined ORF found
+        in the orf_functions.defined_orfs list.
+
+        Args:
+            basis (str): The basis for the anisotropy. Must be 'pixel' or 'spherical'.
+            nside (int): The nside of the pixelization. Defaults to 2.
+            lmax (int, optional): The maximum l value of the spherical harmonics. Defaults to 6.
+            pc_orf (str): The ORF to use for the pair covariance matrix. Defaults to 'hd'.
+        """
+        orf = orf_functions.get_orf_function(pc_orf)
+        temp = np.zeros( (self.npsr,self.npsr) )
+        for a in range(self.npsr):
+            for b in range(a+1,self.npsr):
+                v = orf(self.psrs[a],self.psrs[b])
+                temp[a,b] = v
+                temp[a,b] = v
+        self._mcos_orf = temp
+
+        if basis.lower() == 'pixel':
+            basis = orf_functions.anisotropic_pixel_basis(self.psrs, nside, self._pair_idx)
+            self.nside = nside
+            self.lmax = None
+
+            self.orf_names = [f'pixel_{i}' for i in range(basis.shape[1])]
+            self.orf_design_matrix = basis
+            self._orf_matrix = None
+            self.norfs = basis.shape[1]
+
+        elif basis.lower() == 'spherical':
+            basis = orf_functions.anisotropic_spherical_harmonic_basis(self.psrs, lmax, 
+                                                                nside, self._pair_idx)
+            self.nside = nside
+            self.lmax = lmax
+
+            self.orf_names = [f'Y_{l},{m}' for l in range(lmax+1) for m in range(-l,l+1)]
+            self.orf_design_matrix = basis
+            self._orf_matrix = None
+            self.norfs = basis.shape[1]
+    
+        else:
+            raise os_ex.ORFNotFoundError(f"Anisotropy basis {basis} not found!")
         
 
     def compute_OS(self, params=None, N=1, gamma=None, pair_covariance=False, 

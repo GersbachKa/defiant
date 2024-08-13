@@ -1,7 +1,11 @@
 import numpy as np
+import healpy as hp
+
+from enterprise.signals import anis_coefficients as ac
 from scipy.special import legendre
 
 from .custom_exceptions import ORFNotFoundError
+
 
 ################################################################################
 #                       Creating your own ORF functions
@@ -71,6 +75,10 @@ def get_orf_function(orf_name='hd'):
         - 'st' or 'scalar_tensor': Scalar tensor
         - 'l_n' or 'legendre_n': Legendre polynomial (where n is the legendre order)
 
+    NOTE: If you are trying to use an ORF which constructs an entire design matrix,
+    such as the pixel basis or spherical harmonic basis, you will need to call the
+    functions directly. This function is only for the simple ORF functions.
+
     Raises:
         ORFNotFoundError: If the orf_name is not found in the defined_orfs list
 
@@ -89,13 +97,13 @@ def get_orf_function(orf_name='hd'):
         if orf_name.lower() in orf[0]:
             return orf[1]
         
-        # Legendre polynomials are a bit special
-        if (orf[0][0] in orf_name.lower()) or (orf[0][1] in orf_name.lower()):
-            # This is the legendre polynomial, but which order? It should be 
-            # supplied by the user as 'l_n' or 'legendre_n' where n is the order.
-            l_order = int(orf_name.split('_')[-1])
-            legendre = lambda arg1,arg2=None: orf_legendre(arg1, arg2, l=l_order)
-            return legendre
+    # Legendre polynomials are special cases
+    if ('legendre_' in orf_name.lower()) or ('l_' in orf_name.lower()):
+        # This is the legendre polynomial, but which order? It should be 
+        # supplied by the user as 'l_n' or 'legendre_n' where n is the order.
+        l_order = int(orf_name.split('_')[-1])
+        legendre = lambda arg1,arg2=None: orf_legendre(arg1, arg2, l=l_order)
+        return legendre
         
     # If the function is not found, raise an error
     raise ORFNotFoundError(f"The ORF function '{orf_name}' is not found in the defined_orfs list.")
@@ -377,15 +385,100 @@ def orf_legendre(arg1, arg2 = None, l=0):
 
 # TODO: put in per-telescope orf functions
 
+
+def anisotropic_pixel_basis(psrs, nside, pair_idx=None):
+    """An anisotropic overlap reduction function using a pixel basis
+
+    This function will return an anisotropic overlap reduction function using a pixel
+    basis. This function will take a list of enterprise.Pulsar objects, a healpix nside,
+    and an optional pair index array. 
+    NOTE: This function works differently than the other ORF functions, as it does
+    not take two pulsar objects as input, and returns a full design matrix rather
+    than individual basis functions.
+
+    Args:
+        psrs (enterprise.Pulsar): A list of enterprise.Pulsar objects
+        nside (int): The healpix nside
+        pair_idx (np.ndarray): The pairwise index array. Set to None to have the 
+                function generate the pair index array. Defaults to None.
+
+    Returns:
+        np.ndarray: The design matrix of the anisotropic ORF basis [npairs, npix]
+    """
+    if pair_idx is None:
+        pair_idx = np.array([(a,b) for a in range(len(psrs)) for b in range(a+1,len(psrs))])
+    npairs = pair_idx.shape[0]
+
+    npix = hp.nside2npix(nside)
+    gwtheta,gwphi = hp.pix2ang(nside,np.arange(npix))
+
+    psrtheta = np.array([p.theta for p in psrs])
+    psrphi = np.array([p.phi for p in psrs])
+
+    FpFc = ac.signalResponse_fast(psrtheta,psrphi,gwtheta,gwphi)
+    Fp,Fc = FpFc[:,0::2], FpFc[:,1::2] 
+
+    R_abk = np.zeros( (npairs,npix) )
+    # Now lets do some multiplication
+    for i,(a,b) in enumerate(pair_idx):
+        R_abk[i] = Fp[a]*Fp[b] + Fc[a]*Fc[b]
+
+    return R_abk
+
+
+def anisotropic_spherical_harmonic_basis(psrs, lmax, nside, pair_idx=None):
+    """An anisotropic overlap reduction function using a spherical harmonic basis
+
+    This function will return an anisotropic overlap reduction function using a
+    spherical harmonic basis. This function will take a list of enterprise.Pulsar
+    objects, a maximum l value, a healpix nside, and an optional pair index array.
+    NOTE: This function works differently than the other ORF functions, as it does
+    not take two pulsar objects as input, and returns a full design matrix rather
+    than individual basis functions.
+
+    Args:
+        psrs (enterprise.Pulsar): A list of enterprise.Pulsar objects
+        lmax (int): The maximum l value
+        nside (int): The healpix nside
+        pair_idx (np.ndarray): The pairwise index array. Set to None to have the 
+                function generate the pair index array. Defaults to None.
+    
+    Returns:
+        np.ndarray: The design matrix of the anisotropic ORF basis [npairs, m_modes]
+    """
+    if pair_idx is None:
+        pair_idx = np.array([(a,b) for a in range(len(psrs)) for b in range(a+1,len(psrs))])
+    npairs = pair_idx.shape[0]
+
+    m_modes = (lmax+1)**2
+
+    psrtheta = np.array([p.theta for p in psrs])
+    psrphi = np.array([p.phi for p in psrs])
+    psr_locs = np.array([psrphi,psrtheta]).T
+
+    shape_R_lm = ac.anis_basis(psr_locs,lmax,nside)
+
+    # (modes, pulsar, pulsar)
+    # Basis will be (m=0,l=0), (m=1,l=-1), (m=1,l=0), (m=1,l=1), (m=2,l=-2)...
+
+    # We need to reorient the P_lm matrix to be (pair, modes)
+    R_lm = np.zeros( (npairs, m_modes) )
+
+    for i,(a,b) in enumerate(pair_idx):
+        R_lm[i] = shape_R_lm[:,a,b]
+
+    return R_lm
+
+
 # Defined ORFs ----------------------------------------------------------------
 
 
 defined_orfs = [
-    (['hellingsdowns','hd'],    orf_hd),        # Hellings and Downs
-    (['dipole','dp'],           orf_dp),        # Dipole
-    (['monopole','mp'],         orf_mp),        # Monopole
-    (['gw_dipole','gwdp'],      orf_gwdp),      # Gravitational wave dipole
-    (['gw_monopole','gwmp'],    orf_gwmp),      # Gravitational wave monopole
-    (['scalar_tensor','st'],    orf_st),        # Scalar tensor
-    (['legendre_','l_'],        orf_legendre)   # Legendre polynomial
+    (['hellingsdowns','hd'],        orf_hd), # Hellings and Downs
+    (['dipole','dp'],               orf_dp), # Dipole
+    (['monopole','mp'],             orf_mp), # Monopole
+    (['gw_dipole','gwdp'],          orf_gwdp), # Gravitational wave dipole
+    (['gw_monopole','gwmp'],        orf_gwmp), # Gravitational wave monopole
+    (['scalar_tensor','st'],        orf_st), # Scalar tensor
+    (['legendre_','l_'],            orf_legendre), # Legendre polynomial
 ]
