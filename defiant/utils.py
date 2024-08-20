@@ -8,13 +8,14 @@ from .custom_exceptions import *
 from .orf_functions import get_orf_function, get_pulsar_separation
 
 
-def linear_solve(X,C,r,method=None):
+def linear_solve(X,C,r,method=None, diagonalize_fisher=False):
     """A simple method for minimizing the chi-square 
     
     This function minimizes (r - X*theta)^T C^(-1) (r - X*theta), where r is the 
     data column vector (N x 1) , X is a design matrix (N x M), and C is the 
     covariance matrix (N x N). This function will analytically minimize to find
-    the solution vector (M x 1).
+    the solution vector (M x 1). This function supports diagonaling the Fisher
+    matrix to compute solutions to many processes simultaneously.
     
     method must be one of the following:
         - 'diagonal': Supplied C is the diagonal covariance matrix
@@ -97,7 +98,10 @@ def linear_solve(X,C,r,method=None):
             
 
         if fisher.size>1:
-            cov = np.linalg.pinv(fisher)
+            if diagonalize_fisher:
+                cov = np.diag( 1/np.diag(fisher) )
+            else:
+                cov = np.linalg.pinv(fisher)
         else:
             cov = 1/fisher
         

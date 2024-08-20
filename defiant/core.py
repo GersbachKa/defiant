@@ -30,16 +30,26 @@ class OptimalStatistic:
     Attributes:
         psrs (list): A list of enterprise.pulsar.BasePulsar objects.
         pta (enterprise.signals.signal_base.PTA): A PTA object.
+        npsr (int): The number of pulsars in the PTA.
         gwb_name (str): The name of the GWB in the PTA object.
         lfcore (la_forge.core.Core): A la_forge.core.Core object.
         max_like_params (dict): The maximum likelihood parameters from the chain.
         freqs (np.ndarray): The frequencies of the PTA.
+        nfreq (int): The number of frequencies in the PTA.
+        pair_names (list): A list of the used pulsar pairs.
         npair (int): The number of pulsar pairs.
         norfs (int): The number of overlap reduction functions.
+        orf_functions (list): A list of the ORF functions.
         orf_design_matrix (np.ndarray): The design matrix of the ORFs.
-        _orf_matrix (np.ndarray): A pulsar matrix of ORF values.
         orf_names (list): The names of the ORFs.
+        nside (int): The nside of the pixel basis (if using anisotropy).
+        lmax (int): The maximum l value of the spherical harmonics (if using anisotropy).
         nmos_iterations (dict): A dictionary of the NMOS iterations.
+
+        _pair_idx (np.ndarray): The index of the pulsar pairs.
+        _orf_matrix (np.ndarray): A pulsar matrix of ORF values.
+        _mcos_orf (np.ndarray): The ORF for the pair covariance matrix if using 
+            the experimental MCOS.
         _max_chunk (int): The maximum number of simultaneous matrix products.
         _marginalizing_timing_model (bool): Whether the PTA is marginalizing the timing model.
         _cache (dict): A dictionary of cached matrix products
@@ -111,12 +121,14 @@ class OptimalStatistic:
         self._pair_idx = np.array([(a,b) for a in range(self.npsr) for b in range(a+1,self.npsr)])
         self.npairs = len(self.pair_names)
 
-        self.norfs = 1
+        self.norfs = 0
         self.orf_functions = []
         self.orf_design_matrix = None
         self._orf_matrix = None
         self._mcos_orf = None
         self.orf_names = None
+        self.nside = 0
+        self.lmax = 0
         self.set_orf(orfs, orf_names)
 
         self.nmos_iterations = {}
@@ -352,7 +364,7 @@ class OptimalStatistic:
         
 
     def compute_OS(self, params=None, N=1, gamma=None, pair_covariance=False, 
-                   return_pair_vals=True, use_tqdm=True):
+                   return_pair_vals=True, diagonalize_fisher=False, use_tqdm=True):
         """Compute the OS and its various modifications.
 
         This is one of 2 main functions of the OptimalStatistic class. This function
@@ -374,6 +386,9 @@ class OptimalStatistic:
         If you are using a varied gamma CURN model, you can either:
             - Set a particular gamma value for all NMOS iterations by setting gamma
             - Or set gamma=None and the function will default to each iterations' gamma value
+
+        There is also an option to diagonalize the Fisher matrix, which can be useful
+        if you wish to use MCOS and want to compute the OS for each process separately.
         
 
         Args:
@@ -385,6 +400,7 @@ class OptimalStatistic:
                 assume the PTA model is a fixed gamma and take it from there. Defaults to None.
             pair_covariance (bool): Whether to use pair covariance. Defaults to False.
             return_pair_vals (bool): Whether to return the xi, rho, sig, C values. Defaults to True.
+            diagonalize_fisher (bool): Whether to diagonalize the Fisher matrix. Defaults to False.
             use_tqdm (bool): Whether to use a progress bar. Defaults to True.
 
         Raises:
@@ -441,11 +457,9 @@ class OptimalStatistic:
                 # Fixed gamma, not supplied
                 g = utils.get_fixed_gwb_gamma(self.pta, self.gwb_name)
                 phihat = powerlaw(np.repeat(self.freqs,2), 0, g)
-            
-            xi,_ = utils.compute_pulsar_pair_separations(self.psrs, self._pair_idx)
 
             rho, sig, C, A2, A2s = self._compute_os_iteration(pars, phihat, pair_covariance, 
-                                                              use_tqdm)
+                                                              diagonalize_fisher, use_tqdm)
             
             if return_pair_vals:
                 xi,_ = utils.compute_pulsar_pair_separations(self.psrs, self._pair_idx)
@@ -489,7 +503,7 @@ class OptimalStatistic:
                     phihat = powerlaw(np.repeat(self.freqs,2), 0, g)
                 
                 rho,sig,C,A2,A2s = self._compute_os_iteration(pars, phihat, pair_covariance, 
-                                                              use_tqdm)
+                                                              diagonalize_fisher, use_tqdm)
 
                 self.nmos_iterations['A2'].append(A2)
                 self.nmos_iterations['A2s'].append(A2s)
@@ -521,7 +535,7 @@ class OptimalStatistic:
 
 
     def compute_PFOS(self, params=None, N=1, pair_covariance=False, narrowband=False, 
-                     return_pair_vals=True, use_tqdm=True):
+                     return_pair_vals=True, diagonalize_fisher=False, use_tqdm=True):
         """Compute the PFOS and its various modifications.
 
         This is one of 2 main functions of the OptimalStatistic class. This function
@@ -543,7 +557,9 @@ class OptimalStatistic:
         If you are using a varied gamma CURN model, you can either:
             - Set a particular gamma value for all NM PF OS iterations by setting gamma
             - Or set gamma=None and the function will default to each iterations' gamma value
-        
+
+        There is also an option to diagonalize the Fisher matrix, which can be useful
+        if you wish to use MCOS and want to compute the PFOS for each process separately.
 
         Args:
             params (dict, optional): A dictionary of key:value parameters. 
@@ -553,6 +569,7 @@ class OptimalStatistic:
             narrowband (bool): Whether to use the narrowband-normalized PFOS instead of
                 the default broadband-normalized PFOS. Defaults to False.
             return_pair_vals (bool): Whether to return the xi, rhok, sigk, Ck values. Defaults to True.
+            diagonalize_fisher (bool): Whether to diagonalize the Fisher matrix. Defaults to False.
             use_tqdm (bool): Whether to use a progress bar. Defaults to True.
 
         Raises:
@@ -595,7 +612,7 @@ class OptimalStatistic:
 
             pars = utils.freespec_param_fix(params,self.gwb_name)
             rhok,sigk,Ck,Sk,Sks = self._compute_pfos_iteration(pars, narrowband, 
-                                            pair_covariance, use_tqdm)
+                                            pair_covariance, diagonalize_fisher, use_tqdm)
             
             if return_pair_vals:
                 xi,_ = utils.compute_pulsar_pair_separations(self.psrs,self._pair_idx)
@@ -626,7 +643,7 @@ class OptimalStatistic:
                 pars = utils.freespec_param_fix(params, self.gwb_name)
                 
                 rhok,sigk,Ck,Sk,Sks = self._compute_pfos_iteration(pars, narrowband, pair_covariance, 
-                                                                   use_tqdm)
+                                                                   diagonalize_fisher, use_tqdm)
                         
                 self.nmos_iterations['Sk'].append(Sk)
                 self.nmos_iterations['Sks'].append(Sks)
@@ -751,7 +768,8 @@ class OptimalStatistic:
         return X, Z
     
 
-    def _compute_os_iteration(self, params, phihat, pair_covariance, use_tqdm):
+    def _compute_os_iteration(self, params, phihat, pair_covariance, diagonalize_fisher, 
+                              use_tqdm):
         """Compute a single iteration of the OS. Users should use compute_OS() instead.
 
         An internal function to run a single iteration of the optimal statistic 
@@ -763,6 +781,7 @@ class OptimalStatistic:
             params (dict): A dictionary of parameter values for the PTA.
             phihat (numpy.ndarray): The unit-model spectrum to evaluate the OS with.
             pair_covariance (bool): Whether to use pair covariance in the solving.
+            diagonalize_fisher (bool): Whether to diagonalize the Fisher matrix.
             use_tqdm (bool): Whether to use a progress bar.
 
         Returns:
@@ -807,7 +826,7 @@ class OptimalStatistic:
             C = np.square(sig_ab)
         
         A2, A2s = utils.linear_solve(self.orf_design_matrix, C, rho_ab[:,None], 
-                                                solve_method)
+                                                solve_method, diagonalize_fisher)
         
         A2 = np.squeeze(A2) if self.norfs>1 else A2.item()
         A2s = np.squeeze(A2s) if self.norfs>1 else np.sqrt(A2s.item())
@@ -818,7 +837,8 @@ class OptimalStatistic:
         return rho_ab, sig_ab, C, A2, A2s
 
 
-    def _compute_pfos_iteration(self, params, narrowband, pair_covariance, use_tqdm):
+    def _compute_pfos_iteration(self, params, narrowband, pair_covariance, diagonalize_fisher, 
+                                use_tqdm):
         """Compute a single iteration of the PFOS. Users should use compute_PFOS() instead.
 
         An internal function to run a single iteration of the per frequency 
@@ -832,6 +852,7 @@ class OptimalStatistic:
             params (dict): A dictionary of parameter values for the PTA.
             narrowband (bool): Whether to use the narrowband-normalized PFOS instead.
             pair_covariance (bool): Whether to use pair covariance in the solving.
+            diagonalize_fisher (bool): Whether to diagonalize the Fisher matrix.
             use_tqdm (bool): Whether to use a progress bar.
 
         Returns:
@@ -886,8 +907,8 @@ class OptimalStatistic:
                 solve_method='diagonal'
                 C = sig_abk[k]**2
         
-            s, ssig = utils.linear_solve(self.orf_design_matrix, C, 
-                                         rho_abk[k,:,None], solve_method)
+            s, ssig = utils.linear_solve(self.orf_design_matrix, C, rho_abk[k,:,None], 
+                                         solve_method, diagonalize_fisher)
             
             if pair_covariance:
                 Ck[k] = C[0]+C[1]
