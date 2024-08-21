@@ -577,3 +577,41 @@ def chi_square(rho, sig, design_mat, a2):
     return chi2.item()
 
 
+def invert_skymap(hp_map):
+    """A function to change between GW propogation direction and GW source direction.
+
+    This function takes a healpy map or maps which has either GW propogation direction 
+    or GW source direction and swaps to the other.  This function supports lists or 
+    arrays of healpy maps indicated to the function with len(hp_map.shape)>1.
+
+    Args:
+        hp_map (np.ndarray or list): A healpy map or array or list of healpy maps
+
+    Returns:
+        list: A list of healpy maps or a single healpy map with inverted direction
+    """
+    import healpy as hp
+
+    arg_arr = np.array(hp_map)
+    if len(arg_arr.shape) == 1:
+        arg_arr = arg_arr[None, :]
+
+    inv_map = []
+    for mp in arg_arr:
+        nside = hp.get_nside(mp)
+
+        all_pix_idx = np.array([ ii for ii in range(hp.nside2npix(nside = nside)) ])
+
+        all_pix_x, all_pix_y, all_pix_z = hp.pix2vec(nside = nside, ipix = all_pix_idx)
+
+        inv_all_pix_x = -1 * all_pix_x
+        inv_all_pix_y = -1 * all_pix_y
+        inv_all_pix_z = -1 * all_pix_z
+
+        inv_pix_idx = [hp.vec2pix(nside = nside, x = xx, y = yy, z = zz) for (xx, yy, zz) in zip(inv_all_pix_x, inv_all_pix_y, inv_all_pix_z)]
+        inv_map.append(mp[inv_pix_idx])
+
+    if len(inv_map) == 1:
+        return inv_map[0]
+    
+    return inv_map
