@@ -584,6 +584,8 @@ def invert_skymap(hp_map):
     or GW source direction and swaps to the other.  This function supports lists or 
     arrays of healpy maps indicated to the function with len(hp_map.shape)>1.
 
+    Function from MAPS.utils.invert_omega() by Nihan Pol.
+
     Args:
         hp_map (np.ndarray or list): A healpy map or array or list of healpy maps
 

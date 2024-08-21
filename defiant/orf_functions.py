@@ -392,6 +392,9 @@ def anisotropic_pixel_basis(psrs, nside, pair_idx=None):
     This function will return an anisotropic overlap reduction function using a pixel
     basis. This function will take a list of enterprise.Pulsar objects, a healpix nside,
     and an optional pair index array. 
+    NOTE: This function uses the vector of the GW propogation direction and not
+    the source direction. If you want the other, you can invert the skymap with
+    utils.invert_skymap().
     NOTE: This function works differently than the other ORF functions, as it does
     not take two pulsar objects as input, and returns a full design matrix rather
     than individual basis functions.
@@ -432,6 +435,9 @@ def anisotropic_spherical_harmonic_basis(psrs, lmax, nside, pair_idx=None):
     This function will return an anisotropic overlap reduction function using a
     spherical harmonic basis. This function will take a list of enterprise.Pulsar
     objects, a maximum l value, a healpix nside, and an optional pair index array.
+    NOTE: This function uses the vector of the GW propogation direction and not
+    the source direction. If you want the other, you can invert the skymap with
+    utils.invert_skymap().
     NOTE: This function works differently than the other ORF functions, as it does
     not take two pulsar objects as input, and returns a full design matrix rather
     than individual basis functions.
