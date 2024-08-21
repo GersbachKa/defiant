@@ -8,14 +8,16 @@ from .custom_exceptions import *
 from .orf_functions import get_orf_function, get_pulsar_separation
 
 
-def linear_solve(X,C,r,method=None, diagonalize_fisher=False):
+def linear_solve(X,C,r,method=None, fisher_diag_only=False):
     """A simple method for minimizing the chi-square 
     
     This function minimizes (r - X*theta)^T C^(-1) (r - X*theta), where r is the 
     data column vector (N x 1) , X is a design matrix (N x M), and C is the 
     covariance matrix (N x N). This function will analytically minimize to find
-    the solution vector (M x 1). This function supports diagonaling the Fisher
-    matrix to compute solutions to many processes simultaneously.
+    the solution vector (M x 1). 
+    This function also allows users to only use the diagonal elements of the fisher 
+    matrix by setting fisher_diag_only to True. This is useful for cases where you 
+    wish to compute many single model fits with a single calculation.
     
     method must be one of the following:
         - 'diagonal': Supplied C is the diagonal covariance matrix
@@ -30,6 +32,8 @@ def linear_solve(X,C,r,method=None, diagonalize_fisher=False):
         C (ndarray): The covariance matrix (N x N) or diagonal matrix (N x 1)
         r (ndarray): The residual vector (N x 1)
         method (str, optional): The method of solving to use
+        fisher_diag_only (bool): Whether to zero the off-diagonal elements of the
+            Fisher matrix. Defaults to False.
 
     Raises:
         NameError: If the method name cannot be identified.
@@ -39,8 +43,6 @@ def linear_solve(X,C,r,method=None, diagonalize_fisher=False):
         theta (ndarray): The solution vector theta (M x 1)
         cov (ndarray): The covariance matrix between linear elements (M x M)
     """
-    # Valid methods: exact, pinv, diagonal
-    # TODO: Implement other methods
 
     if method is None:
         # TODO: Automate method switching
@@ -98,9 +100,10 @@ def linear_solve(X,C,r,method=None, diagonalize_fisher=False):
             
 
         if fisher.size>1:
-            if diagonalize_fisher:
+            if fisher_diag_only:
                 cov = np.diag( 1/np.diag(fisher) )
             else:
+                print(np.log10(np.linalg.cond(fisher)))
                 cov = np.linalg.pinv(fisher)
         else:
             cov = 1/fisher

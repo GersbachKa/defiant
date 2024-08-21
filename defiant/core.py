@@ -354,7 +354,7 @@ class OptimalStatistic:
             self.nside = nside
             self.lmax = lmax
 
-            self.orf_names = [f'Y_{l},{m}' for l in range(lmax+1) for m in range(-l,l+1)]
+            self.orf_names = [f'c_{l},{m}' for l in range(lmax+1) for m in range(-l,l+1)]
             self.orf_design_matrix = basis
             self._orf_matrix = None
             self.norfs = basis.shape[1]
@@ -364,7 +364,7 @@ class OptimalStatistic:
         
 
     def compute_OS(self, params=None, N=1, gamma=None, pair_covariance=False, 
-                   return_pair_vals=True, diagonalize_fisher=False, use_tqdm=True):
+                   return_pair_vals=True, fisher_diag_only=False, use_tqdm=True):
         """Compute the OS and its various modifications.
 
         This is one of 2 main functions of the OptimalStatistic class. This function
@@ -387,9 +387,9 @@ class OptimalStatistic:
             - Set a particular gamma value for all NMOS iterations by setting gamma
             - Or set gamma=None and the function will default to each iterations' gamma value
 
-        There is also an option to diagonalize the Fisher matrix, which can be useful
-        if you wish to use MCOS and want to compute the OS for each process separately.
-        
+        There is also an option to use only the diagonal elements of the Fisher matrix,
+        which can be useful if you are trying to measure many single component OS processes
+        simultaneously. Keep this on True unless you know what you are doing.
 
         Args:
             params (dict, optional): A dictionary of key:value parameters. 
@@ -400,7 +400,8 @@ class OptimalStatistic:
                 assume the PTA model is a fixed gamma and take it from there. Defaults to None.
             pair_covariance (bool): Whether to use pair covariance. Defaults to False.
             return_pair_vals (bool): Whether to return the xi, rho, sig, C values. Defaults to True.
-            diagonalize_fisher (bool): Whether to diagonalize the Fisher matrix. Defaults to False.
+            fisher_diag_only (bool): Whether to zero the off-diagonal elements of the
+                fisher matrix.
             use_tqdm (bool): Whether to use a progress bar. Defaults to True.
 
         Raises:
@@ -459,7 +460,7 @@ class OptimalStatistic:
                 phihat = powerlaw(np.repeat(self.freqs,2), 0, g)
 
             rho, sig, C, A2, A2s = self._compute_os_iteration(pars, phihat, pair_covariance, 
-                                                              diagonalize_fisher, use_tqdm)
+                                                              fisher_diag_only, use_tqdm)
             
             if return_pair_vals:
                 xi,_ = utils.compute_pulsar_pair_separations(self.psrs, self._pair_idx)
@@ -503,7 +504,7 @@ class OptimalStatistic:
                     phihat = powerlaw(np.repeat(self.freqs,2), 0, g)
                 
                 rho,sig,C,A2,A2s = self._compute_os_iteration(pars, phihat, pair_covariance, 
-                                                              diagonalize_fisher, use_tqdm)
+                                                              fisher_diag_only, use_tqdm)
 
                 self.nmos_iterations['A2'].append(A2)
                 self.nmos_iterations['A2s'].append(A2s)
@@ -535,7 +536,7 @@ class OptimalStatistic:
 
 
     def compute_PFOS(self, params=None, N=1, pair_covariance=False, narrowband=False, 
-                     return_pair_vals=True, diagonalize_fisher=False, use_tqdm=True):
+                     return_pair_vals=True, fisher_diag_only=False, use_tqdm=True):
         """Compute the PFOS and its various modifications.
 
         This is one of 2 main functions of the OptimalStatistic class. This function
@@ -558,8 +559,9 @@ class OptimalStatistic:
             - Set a particular gamma value for all NM PF OS iterations by setting gamma
             - Or set gamma=None and the function will default to each iterations' gamma value
 
-        There is also an option to diagonalize the Fisher matrix, which can be useful
-        if you wish to use MCOS and want to compute the PFOS for each process separately.
+        There is also an option to use only the diagonal elements of the Fisher matrix,
+        which can be useful if you are trying to measure many single component OS processes
+        simultaneously. Keep this on True unless you know what you are doing.
 
         Args:
             params (dict, optional): A dictionary of key:value parameters. 
@@ -569,7 +571,8 @@ class OptimalStatistic:
             narrowband (bool): Whether to use the narrowband-normalized PFOS instead of
                 the default broadband-normalized PFOS. Defaults to False.
             return_pair_vals (bool): Whether to return the xi, rhok, sigk, Ck values. Defaults to True.
-            diagonalize_fisher (bool): Whether to diagonalize the Fisher matrix. Defaults to False.
+            fisher_diag_only (bool): Whether to zero the off-diagonal elements of the
+                fisher matrix.
             use_tqdm (bool): Whether to use a progress bar. Defaults to True.
 
         Raises:
@@ -612,7 +615,7 @@ class OptimalStatistic:
 
             pars = utils.freespec_param_fix(params,self.gwb_name)
             rhok,sigk,Ck,Sk,Sks = self._compute_pfos_iteration(pars, narrowband, 
-                                            pair_covariance, diagonalize_fisher, use_tqdm)
+                                            pair_covariance, fisher_diag_only, use_tqdm)
             
             if return_pair_vals:
                 xi,_ = utils.compute_pulsar_pair_separations(self.psrs,self._pair_idx)
@@ -643,7 +646,7 @@ class OptimalStatistic:
                 pars = utils.freespec_param_fix(params, self.gwb_name)
                 
                 rhok,sigk,Ck,Sk,Sks = self._compute_pfos_iteration(pars, narrowband, pair_covariance, 
-                                                                   diagonalize_fisher, use_tqdm)
+                                                                   fisher_diag_only, use_tqdm)
                         
                 self.nmos_iterations['Sk'].append(Sk)
                 self.nmos_iterations['Sks'].append(Sks)
@@ -768,7 +771,7 @@ class OptimalStatistic:
         return X, Z
     
 
-    def _compute_os_iteration(self, params, phihat, pair_covariance, diagonalize_fisher, 
+    def _compute_os_iteration(self, params, phihat, pair_covariance, fisher_diag_only, 
                               use_tqdm):
         """Compute a single iteration of the OS. Users should use compute_OS() instead.
 
@@ -781,7 +784,8 @@ class OptimalStatistic:
             params (dict): A dictionary of parameter values for the PTA.
             phihat (numpy.ndarray): The unit-model spectrum to evaluate the OS with.
             pair_covariance (bool): Whether to use pair covariance in the solving.
-            diagonalize_fisher (bool): Whether to diagonalize the Fisher matrix.
+            fisher_diag_only (bool): Whether to zero the off-diagonal elements of the
+                fisher matrix.
             use_tqdm (bool): Whether to use a progress bar.
 
         Returns:
@@ -826,7 +830,7 @@ class OptimalStatistic:
             C = np.square(sig_ab)
         
         A2, A2s = utils.linear_solve(self.orf_design_matrix, C, rho_ab[:,None], 
-                                                solve_method, diagonalize_fisher)
+                                                solve_method, fisher_diag_only)
         
         A2 = np.squeeze(A2) if self.norfs>1 else A2.item()
         A2s = np.squeeze(A2s) if self.norfs>1 else np.sqrt(A2s.item())
@@ -837,7 +841,7 @@ class OptimalStatistic:
         return rho_ab, sig_ab, C, A2, A2s
 
 
-    def _compute_pfos_iteration(self, params, narrowband, pair_covariance, diagonalize_fisher, 
+    def _compute_pfos_iteration(self, params, narrowband, pair_covariance, fisher_diag_only, 
                                 use_tqdm):
         """Compute a single iteration of the PFOS. Users should use compute_PFOS() instead.
 
@@ -852,7 +856,8 @@ class OptimalStatistic:
             params (dict): A dictionary of parameter values for the PTA.
             narrowband (bool): Whether to use the narrowband-normalized PFOS instead.
             pair_covariance (bool): Whether to use pair covariance in the solving.
-            diagonalize_fisher (bool): Whether to diagonalize the Fisher matrix.
+            fisher_diag_only (bool): Whether to zero the off-diagonal elements of the
+                fisher matrix.
             use_tqdm (bool): Whether to use a progress bar.
 
         Returns:
@@ -908,7 +913,7 @@ class OptimalStatistic:
                 C = sig_abk[k]**2
         
             s, ssig = utils.linear_solve(self.orf_design_matrix, C, rho_abk[k,:,None], 
-                                         solve_method, diagonalize_fisher)
+                                         solve_method, fisher_diag_only)
             
             if pair_covariance:
                 Ck[k] = C[0]+C[1]
