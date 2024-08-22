@@ -83,13 +83,13 @@ def linear_solve(X,C,r,method=None, fisher_diag_only=False):
             # Woodbury method requires C to have shape [2 x N_pairs x N_pairs]
             if C.shape[0] != 2 or C.shape[1] != C.shape[2]:
                 raise ValueError('Woodbury method requires C to have shape [2 x N_pairs x N_pairs]')
-            S = np.diag(C[0]) # Convert to diagonal array
+            
+            # Use same notation as https://en.wikipedia.org/wiki/Woodbury_matrix_identity
+            A = C[0]
+            In = np.eye(A.shape[0])
             K = C[1]
-            I_n = np.eye(S.shape[0])
         
-            ainv = np.diag(1/S) # Invert diagonal matrix, then convert to square
-            Kainv = K@ainv
-            cinv = ainv - ainv @ np.linalg.solve(I_n + Kainv, Kainv)
+            cinv = woodbury_inverse(A,In,In,K)
 
             fisher = X.T @ cinv @ X
             dirty_map = X.T @ cinv @ r 
@@ -103,7 +103,6 @@ def linear_solve(X,C,r,method=None, fisher_diag_only=False):
             if fisher_diag_only:
                 cov = np.diag( 1/np.diag(fisher) )
             else:
-                print(np.log10(np.linalg.cond(fisher)))
                 cov = np.linalg.pinv(fisher)
         else:
             cov = 1/fisher
@@ -620,3 +619,39 @@ def invert_skymap(hp_map):
         return inv_map[0]
     
     return inv_map
+
+
+def woodbury_inverse(A, U, C, V, ret_cond = False):
+    """A function to compute the inverse of a matrix using the Woodbury matrix identity.
+
+    This function computes the inverse of a matrix using the Woodbury matrix identity 
+    for more stable matrix inverses. The matrix labels are the same as those used 
+    in its wikipedia page (https://en.wikipedia.org/wiki/Woodbury_matrix_identity)
+    This solves the inverse to: (A + UCV)^-1.
+    
+    This function can also solve inverses of the form: (A + K)^-1 where A is a
+    diagonal matrix and K is a dense matrix. To do this, simply set U and C to 
+    the identity matrix and V to K.
+    
+    Args:
+        A (np.ndarray): An invertible nxn matrix
+        U (np.ndarray): A nxk matrix
+        C (np.ndarray): An invertible kxk matrix
+        V (np.ndarray): A kxn matrix
+        ret_cond (bool, optional): Whether to return the condition number of the matrix (C + V A^-1 U)
+
+    Returns:
+        np.ndarray: The inverse of the matrix (A + UCV)^-1
+    """
+
+    Ainv = np.diag( 1/np.diag(A) )
+    Cinv = np.linalg.pinv(C)
+
+    # (A+UCV)^-1 = (A^-1) - A^-1 @ U @ (C^-1 + V @ A^-1 @ U)^-1 @ V @ A^-1
+    CVAU = Cinv + V @ Ainv @ U
+    tot_inv = Ainv - Ainv @ U @ np.linalg.solve(CVAU, V @ Ainv) 
+
+    if ret_cond:
+        return tot_inv, np.linalg.cond(CVAU)
+    
+    return tot_inv

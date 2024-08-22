@@ -306,7 +306,7 @@ class OptimalStatistic:
                 for b in range(a+1,self.npsr):
                     v = orf(self.psrs[a],self.psrs[b])
                     temp[a,b] = v
-                    temp[a,b] = v
+                    temp[b,a] = v
             self._mcos_orf = temp
         else:
             self._mcos_orf = None
@@ -335,7 +335,7 @@ class OptimalStatistic:
             for b in range(a+1,self.npsr):
                 v = orf(self.psrs[a],self.psrs[b])
                 temp[a,b] = v
-                temp[a,b] = v
+                temp[b,a] = v
         self._mcos_orf = temp
 
         if basis.lower() == 'pixel':
