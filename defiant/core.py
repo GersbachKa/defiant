@@ -57,7 +57,7 @@ class OptimalStatistic:
 
     def __init__(self, psrs, pta, gwb_name='gw', core_path=None, core=None,  
                  chain_path=None, chain=None, param_names=None, 
-                 orfs=['hd'], orf_names=None, max_chunk=300):
+                 orfs=['hd'], orf_names=None, pcmc_orf=None, max_chunk=300):
         """Initializes the OptimalStatistic object.
 
         There are many ways to initialize the OptimalStatistic object, and most
@@ -86,6 +86,8 @@ class OptimalStatistic:
                 Defaults to ['hd'].
             orf_names (str or list, optional): The names of the corresponding orfs. Set to None
                     for default names.
+            pcmc_orf (str or function, optional): The assumed ORF for the pair covariance matrix.
+                    when using the MCOS. Defaults to None.
             max_chunk (int, optional): The number of allowed simultaneous matrix products to compute. 
                 Defaults to 300.
 
@@ -129,7 +131,7 @@ class OptimalStatistic:
         self.orf_names = None
         self.nside = 0
         self.lmax = 0
-        self.set_orf(orfs, orf_names)
+        self.set_orf(orfs, orf_names, pcmc_orf)
 
         self.nmos_iterations = {}
 
@@ -209,7 +211,6 @@ class OptimalStatistic:
             - 'l_' or 'legendre_': Legendre polynomials where the number after 
                     the _ is the degree
             
-        EXPERIMENTAL FEATURE (pcmc_orf):
         pcmc_orf is an experimental feature that aims to curb the problematic 
         nature of pair covariance matrix with the MCOS. 
 
@@ -220,6 +221,10 @@ class OptimalStatistic:
         If this argument is set to a str: 
             - The pair covariance matrix will be computed using a singular ORF 
             function specified (i.e. 'hd').
+        If this argument is set to a function:
+            - The pair covariance matrix will be computed using the user supplied 
+            function. This function must accept two enterprise.pulsar.BasePulsar 
+            objects as inputs and outputs a float for their ORF.
 
         
         Args:
@@ -229,8 +234,8 @@ class OptimalStatistic:
                     and outputs a float for their ORF.
             orf_names (list, optional): The names of the corresponding orfs. Set to None
                     for default names.
-            pcmc_orf (str, optional): The assumed ORF for the pair covariance matrix.
-                    when using the MCOS. Defaults to None.
+            pcmc_orf (str or function, optional): The assumed ORF for the pair covariance 
+                    matrix. when using the MCOS. Defaults to None.
 
         Raises:
             ValueError: If the length of the orfs and orf_names does not match.
@@ -300,7 +305,13 @@ class OptimalStatistic:
 
         # Additional bits for PC+MC
         if pcmc_orf is not None:
-            orf = orf_functions.get_orf_function(pcmc_orf)
+            if type(pcmc_orf) == str:
+                # Pre-defined ORF
+                orf = orf_functions.get_orf_function(pcmc_orf)
+            else:
+                # User designed ORF
+                orf = pcmc_orf
+
             temp = np.zeros( (self.npsr,self.npsr) )
             for a in range(self.npsr):
                 for b in range(a+1,self.npsr):

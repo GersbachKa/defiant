@@ -2,7 +2,7 @@
 import numpy as np
 
 
-def get_mdc1_psrs():
+def get_MDC1_psrs():
     """A function to grab the MDC1 dataset and return it as a list of Enterprise Pulsar objects.
 
     Returns:
