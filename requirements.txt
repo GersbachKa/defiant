@@ -1,0 +1,8 @@
+numpy
+scipy
+matplotlib
+healpy
+tqdm
+scipy
+enterprise-extensions
+la_forge
