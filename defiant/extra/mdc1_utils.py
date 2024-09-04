@@ -11,14 +11,18 @@ def get_MDC1_psrs():
     import enterprise
     from enterprise.pulsar import Pulsar
     from glob import glob
+    from tqdm.auto import tqdm
 
     datadir = enterprise.__path__[0] + '/datafiles/mdc_open1/'
     parfiles = sorted(glob(datadir + '/*.par'))
     timfiles = sorted(glob(datadir + '/*.tim'))
 
-    import logging
-    logging.getLogger("enterprise").setLevel(logging.ERROR)
-    psrs = [Pulsar(par,tim) for par,tim in zip(parfiles,timfiles)]
+
+    psrs = []
+    for i in tqdm(range(len(parfiles)),desc='Loading MDC1 psrs'):
+        psr = Pulsar(parfiles[i],timfiles[i],)
+        psrs.append(psr)
+        del psr
     
     inj_params = {'gw_log10_A':np.log10(5e-14),'gw_gamma':(13./3.)}
 
@@ -71,6 +75,7 @@ def create_MDC1_like_psrs(gwb_amplitude=5e-14, gwb_gamma=13./3.,
     from glob import glob
 
     from libstempo import toasim as LT
+    from tqdm.auto import tqdm
 
     inj_params={}
     seed = int(np.random.random()*2**31-1) if seed==None else int(seed)
@@ -81,7 +86,8 @@ def create_MDC1_like_psrs(gwb_amplitude=5e-14, gwb_gamma=13./3.,
     obstimes = 53000.0 + np.linspace(0.0,tspan,int(26*tspan)) * 365.25
 
     ltpsrs = []
-    for i,p in enumerate(parfiles):
+    for i in tqdm(range(len(parfiles)),desc='Creating psrs'):
+        p = parfiles[i]
         psr = LT.fakepulsar(parfile=p, obstimes=obstimes, toaerr=toaerr)
         LT.add_efac(psr,efac=1.0,seed=seed)
         seed+=1
@@ -130,8 +136,7 @@ def create_MDC1_like_psrs(gwb_amplitude=5e-14, gwb_gamma=13./3.,
                        'Data will be flawed.'
                 raise Exception(msg)
 
-    import logging
-    logging.getLogger("enterprise").setLevel(logging.ERROR)
+
     psrs = [Pulsar(p) for p in ltpsrs]
     
     return psrs, inj_params
