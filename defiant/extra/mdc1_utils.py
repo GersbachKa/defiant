@@ -209,7 +209,7 @@ def create_MDC1_PTA(psrs, gwb_psd='powerlaw', gwb_components=10, gwb_gamma=13./3
     irn = blocks.red_noise_block(psd='powerlaw',Tspan=Tspan,components=irn_components)
 
     if use_marginalizingtm:
-        tm = gp_signals.MarginalizingTimingModel(use_svd=True)
+        tm = gp_signals.MarginalizingTimingModel()
     else:
         tm = gp_signals.TimingModel(use_svd=True)
 

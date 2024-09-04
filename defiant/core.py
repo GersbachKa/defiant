@@ -705,11 +705,17 @@ class OptimalStatistic:
         all_TNT = []
         all_TNr = []
 
-        for psr_signal in self.pta._signalcollections:
+        # Getting the F matrices are enterprise version dependent. Move to a function
+        all_F = self._get_F_matrices()
+
+        for idx,psr_signal in enumerate(self.pta._signalcollections):
             r = psr_signal._residuals
-            F = psr_signal[self.gwb_name].get_basis()
             N = psr_signal.get_ndiag()
             T = psr_signal.get_basis()
+            F = all_F[idx]
+            
+            # Getting the F matrix is a bit weird and very enterprise version dependent
+            
 
             if self._marginalizing_timing_model:
                 # Need to use own solving method for N
@@ -879,7 +885,7 @@ class OptimalStatistic:
             Sks (numpy.ndarray): The uncertainty or covariance matrix in Sk for each frequency.
         """
         X,Z = self._compute_XZ(params)
-        gw_signal = [s for s in self.pta._signalcollections[0] if s.signal_id==self.gwb_name][0]
+        gw_signal = [s for s in self.pta._signalcollections[0].signals if s.signal_id==self.gwb_name][0]
         phi = gw_signal.get_phi(params)
         rho_abk, sig_abk, norm_abk = self._compute_rhok_sigk(X,Z,phi,narrowband)
 
@@ -1017,6 +1023,33 @@ class OptimalStatistic:
             sig_abk[k] =  np.sqrt(np.einsum('ijk,ikj->i', phi_til*Z[a], phi_til*Z[b]) * norms_abk[k]**2)
 
         return rho_abk, sig_abk, norms_abk
+
+
+    def _get_F_matrices(self):
+        """A function to get the F matrices for all pulsars
+
+        Since getting the F matrices can be enterprise version dependent, this
+        helper function is used as a quick way to get these matrices and handle 
+        that version dependency.
+
+        Returns:
+            list: A list of F matrices for each pulsar
+        """
+        F = []
+        try:
+            # Some versions of enterprise let you script the pulsar signal
+            F = [psrsig[self.gwb_name].get_basis() for psrsig in self.pta._signalcollections]
+        except:
+            # And some don't
+            for psrsig in self.pta._signalcollections:
+                for sig in psrsig.signals:
+                    if sig.signal_id == self.gwb_name:
+                        F.append(sig.get_basis())
+                        break
+            
+            if len(F)!=len(self.pta._signalcollections):
+                raise ValueError('No GWB signal found in PTA._signalcollections[0].signals!')
+        return F
 
 
 def _solveD(N_obj, right, left):

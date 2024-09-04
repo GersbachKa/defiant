@@ -21,7 +21,9 @@ setup(
         "healpy",
         "tqdm",
         "scipy",
-        "enterprise-extensions",
+        "libstempo>=2.4.0",
+        "enterprise-pulsar>=3.3.0",
+        "enterprise-extensions>=2.4.0",
         "la_forge",
     ],
     classifiers=[

@@ -130,7 +130,7 @@ def get_pta_frequencies(pta, gwb_name='gw'):
         np.array: The frequencies of the GWB
     """
     try:
-        gwb_sig = [s for s in pta._signalcollections[0] if s.signal_id==gwb_name][0]
+        gwb_sig = [s for s in pta._signalcollections[0].signals if s.signal_id==gwb_name][0]
         gwb_sig.get_basis()
  
         if type(gwb_sig._labels) == dict:
@@ -161,7 +161,7 @@ def get_fixed_gwb_gamma(pta, gwb_name='gw'):
         float: The value of the GWB gamma 
     """
     try:
-        gwb_signal = [s for s in pta._signalcollections[0] if s.signal_id==gwb_name][0]
+        gwb_signal = [s for s in pta._signalcollections[0].signals if s.signal_id==gwb_name][0]
         gamma = gwb_signal.get(gwb_name+'_gamma')
     except KeyError as e:
         msg = "Unable to get gamma value from the PTA model!"
@@ -255,7 +255,7 @@ def fit_a2_from_params(params, pta=None, gwb_name='gw', model_phi=None, cov=None
 
     pars = freespec_param_fix(params, gwb_name)
 
-    gwb_signal = [s for s in pta._signalcollections[0] if s.signal_id==gwb_name][0]
+    gwb_signal = [s for s in pta._signalcollections[0].signals if s.signal_id==gwb_name][0]
     rho = gwb_signal.get_phi(pars)
 
     a2,_ = linear_solve(model_phi, cov, rho, None)
