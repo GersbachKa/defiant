@@ -8,13 +8,16 @@ from .custom_exceptions import *
 from .orf_functions import get_orf_function, get_pulsar_separation
 
 
-def linear_solve(X,C,r,method=None):
+def linear_solve(X,C,r,method=None, fisher_diag_only=False):
     """A simple method for minimizing the chi-square 
     
     This function minimizes (r - X*theta)^T C^(-1) (r - X*theta), where r is the 
     data column vector (N x 1) , X is a design matrix (N x M), and C is the 
     covariance matrix (N x N). This function will analytically minimize to find
-    the solution vector (M x 1).
+    the solution vector (M x 1). 
+    This function also allows users to only use the diagonal elements of the fisher 
+    matrix by setting fisher_diag_only to True. This is useful for cases where you 
+    wish to compute many single model fits with a single calculation.
     
     method must be one of the following:
         - 'diagonal': Supplied C is the diagonal covariance matrix
@@ -29,6 +32,8 @@ def linear_solve(X,C,r,method=None):
         C (ndarray): The covariance matrix (N x N) or diagonal matrix (N x 1)
         r (ndarray): The residual vector (N x 1)
         method (str, optional): The method of solving to use
+        fisher_diag_only (bool): Whether to zero the off-diagonal elements of the
+            Fisher matrix. Defaults to False.
 
     Raises:
         NameError: If the method name cannot be identified.
@@ -38,8 +43,6 @@ def linear_solve(X,C,r,method=None):
         theta (ndarray): The solution vector theta (M x 1)
         cov (ndarray): The covariance matrix between linear elements (M x M)
     """
-    # Valid methods: exact, pinv, diagonal
-    # TODO: Implement other methods
 
     if method is None:
         # TODO: Automate method switching
@@ -80,13 +83,13 @@ def linear_solve(X,C,r,method=None):
             # Woodbury method requires C to have shape [2 x N_pairs x N_pairs]
             if C.shape[0] != 2 or C.shape[1] != C.shape[2]:
                 raise ValueError('Woodbury method requires C to have shape [2 x N_pairs x N_pairs]')
-            S = np.diag(C[0]) # Convert to diagonal array
+            
+            # Use same notation as https://en.wikipedia.org/wiki/Woodbury_matrix_identity
+            A = C[0]
+            In = np.eye(A.shape[0])
             K = C[1]
-            I_n = np.eye(S.shape[0])
         
-            ainv = np.diag(1/S) # Invert diagonal matrix, then convert to square
-            Kainv = K@ainv
-            cinv = ainv - ainv @ np.linalg.solve(I_n + Kainv, Kainv)
+            cinv = woodbury_inverse(A,In,In,K)
 
             fisher = X.T @ cinv @ X
             dirty_map = X.T @ cinv @ r 
@@ -97,7 +100,10 @@ def linear_solve(X,C,r,method=None):
             
 
         if fisher.size>1:
-            cov = np.linalg.pinv(fisher)
+            if fisher_diag_only:
+                cov = np.diag( 1/np.diag(fisher) )
+            else:
+                cov = np.linalg.pinv(fisher)
         else:
             cov = 1/fisher
         
@@ -124,7 +130,7 @@ def get_pta_frequencies(pta, gwb_name='gw'):
         np.array: The frequencies of the GWB
     """
     try:
-        gwb_sig = [s for s in pta._signalcollections[0] if s.signal_id==gwb_name][0]
+        gwb_sig = [s for s in pta._signalcollections[0].signals if s.signal_id==gwb_name][0]
         gwb_sig.get_basis()
  
         if type(gwb_sig._labels) == dict:
@@ -155,7 +161,7 @@ def get_fixed_gwb_gamma(pta, gwb_name='gw'):
         float: The value of the GWB gamma 
     """
     try:
-        gwb_signal = [s for s in pta._signalcollections[0] if s.signal_id==gwb_name][0]
+        gwb_signal = [s for s in pta._signalcollections[0].signals if s.signal_id==gwb_name][0]
         gamma = gwb_signal.get(gwb_name+'_gamma')
     except KeyError as e:
         msg = "Unable to get gamma value from the PTA model!"
@@ -249,7 +255,7 @@ def fit_a2_from_params(params, pta=None, gwb_name='gw', model_phi=None, cov=None
 
     pars = freespec_param_fix(params, gwb_name)
 
-    gwb_signal = [s for s in pta._signalcollections[0] if s.signal_id==gwb_name][0]
+    gwb_signal = [s for s in pta._signalcollections[0].signals if s.signal_id==gwb_name][0]
     rho = gwb_signal.get_phi(pars)
 
     a2,_ = linear_solve(model_phi, cov, rho, None)
@@ -573,3 +579,79 @@ def chi_square(rho, sig, design_mat, a2):
     return chi2.item()
 
 
+def invert_skymap(hp_map):
+    """A function to change between GW propogation direction and GW source direction.
+
+    This function takes a healpy map or maps which has either GW propogation direction 
+    or GW source direction and swaps to the other.  This function supports lists or 
+    arrays of healpy maps indicated to the function with len(hp_map.shape)>1.
+
+    Function from MAPS.utils.invert_omega() by Nihan Pol.
+
+    Args:
+        hp_map (np.ndarray or list): A healpy map or array or list of healpy maps
+
+    Returns:
+        list: A list of healpy maps or a single healpy map with inverted direction
+    """
+    import healpy as hp
+
+    arg_arr = np.array(hp_map)
+    if len(arg_arr.shape) == 1:
+        arg_arr = arg_arr[None, :]
+
+    inv_map = []
+    for mp in arg_arr:
+        nside = hp.get_nside(mp)
+
+        all_pix_idx = np.array([ ii for ii in range(hp.nside2npix(nside = nside)) ])
+
+        all_pix_x, all_pix_y, all_pix_z = hp.pix2vec(nside = nside, ipix = all_pix_idx)
+
+        inv_all_pix_x = -1 * all_pix_x
+        inv_all_pix_y = -1 * all_pix_y
+        inv_all_pix_z = -1 * all_pix_z
+
+        inv_pix_idx = [hp.vec2pix(nside = nside, x = xx, y = yy, z = zz) for (xx, yy, zz) in zip(inv_all_pix_x, inv_all_pix_y, inv_all_pix_z)]
+        inv_map.append(mp[inv_pix_idx])
+
+    if len(inv_map) == 1:
+        return inv_map[0]
+    
+    return inv_map
+
+
+def woodbury_inverse(A, U, C, V, ret_cond = False):
+    """A function to compute the inverse of a matrix using the Woodbury matrix identity.
+
+    This function computes the inverse of a matrix using the Woodbury matrix identity 
+    for more stable matrix inverses. The matrix labels are the same as those used 
+    in its wikipedia page (https://en.wikipedia.org/wiki/Woodbury_matrix_identity)
+    This solves the inverse to: (A + UCV)^-1.
+    
+    This function can also solve inverses of the form: (A + K)^-1 where A is a
+    diagonal matrix and K is a dense matrix. To do this, simply set U and C to 
+    the identity matrix and V to K.
+    
+    Args:
+        A (np.ndarray): An invertible nxn matrix
+        U (np.ndarray): A nxk matrix
+        C (np.ndarray): An invertible kxk matrix
+        V (np.ndarray): A kxn matrix
+        ret_cond (bool, optional): Whether to return the condition number of the matrix (C + V A^-1 U)
+
+    Returns:
+        np.ndarray: The inverse of the matrix (A + UCV)^-1
+    """
+
+    Ainv = np.diag( 1/np.diag(A) )
+    Cinv = np.linalg.pinv(C)
+
+    # (A+UCV)^-1 = (A^-1) - A^-1 @ U @ (C^-1 + V @ A^-1 @ U)^-1 @ V @ A^-1
+    CVAU = Cinv + V @ Ainv @ U
+    tot_inv = Ainv - Ainv @ U @ np.linalg.solve(CVAU, V @ Ainv) 
+
+    if ret_cond:
+        return tot_inv, np.linalg.cond(CVAU)
+    
+    return tot_inv
