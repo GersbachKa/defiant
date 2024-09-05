@@ -15,12 +15,10 @@ setup(
     packages=find_packages(),
     license="MIT license",
     install_requires=[
-        "numpy>=1.16.3",
-        "scipy>=1.2.0",
+        "healpy>=1.15.0",
         "matplotlib>=3.0.0",
         "tqdm>=4.32.2",
-        "la_forge>=1.1.0",
-        "healpy>=1.14.0",
+        "la_forge>=1.1.0"
     ],
     classifiers=[
         'Programming Language :: Python :: 3',
