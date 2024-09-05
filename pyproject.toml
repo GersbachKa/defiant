@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "DEFIANT"
 version = "0.1.0"
 authors = [
-  { name="Kyle Gersbach", email="Gersbach.ka[at]gmail.com" },
+  { name="Kyle Gersbach", email="Gersbach.ka@gmail.com" },
 ]
 description = "A package used for robust, fast, and frequentist analysis of Pulsar Timing Array data using the PTA Optimal Statistic"
 readme = "README.md"

@@ -10,7 +10,7 @@ setup(
     long_description_content_type="text/markdown",
     version='0.1.0',
     author='Kyle A. Gersbach',
-    author_email='gersbach.ka[at]gmail.com',
+    author_email='gersbach.ka@gmail.com',
     url='https://github.com/GersbachKa/defiant/',
     packages=find_packages(),
     license="MIT license",
