@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "DEFIANT"
+version = "0.1.0"
+authors = [
+  { name="Kyle Gersbach", email="Gersbach.ka[at]gmail.com" },
+]
+description = "A package used for robust, fast, and frequentist analysis of Pulsar Timing Array data using the PTA Optimal Statistic"
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/GersbachKa/defiant"
+Issues = "https://github.com/GersbachKa/defiant/issues"
