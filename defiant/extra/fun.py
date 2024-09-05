@@ -126,10 +126,10 @@ def what_kind_of_OS_are_you():
         code.append("OS_obj.set_orf(orf=['hd'])")
 
     if suggested_form[1] is not None:
-        instructions.append('Next, when we call the compute_OS() or compute_PFOS() methods, the pair_covariance=True flag is default.')
+        instructions.append('Next, when we call the compute_OS() or compute_PFOS() methods, you must set pair_covariance=True .')
         pc_par = 'pair_covariance=True'
     else:
-        instructions.append('Next, when we call the compute_OS() or compute_PFOS() methods, the pair_covariance=False flag must be set.')
+        instructions.append('Next, when we call the compute_OS() or compute_PFOS() methods, pair_covariance=False is the default behavior, but can be explicit.')
         pc_par = 'pair_covariance=False'
     
     if suggested_form[0] is not None: # Per-Frequency

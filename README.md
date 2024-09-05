@@ -8,14 +8,31 @@ This code is still in its early stages, so if you have questions reach out to me
 
 ## Installation
 
-TODO: Make this package installable...
+TODO: Make this package *conda* installable...
 
-For now, you can copy the local location of your 'defiant' folder and add it to system path.
-You can do this in python with the following command
+For now, there are two options for installation,
+
+### Option 1: pip
+The first option is to use ``pip+git``. For this method you **MUST** install ``ENTERPRISE`` through conda first. I reccomend installing it with ``enterprise_extensions`` for its additional utility. Follow these steps (Verified in python versions: 3.9 & 3.11):
+
+```bash
+conda install -c conda-forge enterprise_extensions
+pip install git+https://github.com/GersbachKa/defiant@main
+
+# If you are using VScode for your notebooks, I reccomend you use https://pypi.org/project/vscode-tqdm/ 
+# This fixes a bug in the rendering of notebooks. You will also need ipywidgets
+pip install vscode-tqdm ipywidgets
+```
+
+Note: You may need to check which version of ``ENTERPRISE`` gets installed, as the tnequad definition change happened on version [v3.3.0](https://github.com/nanograv/enterprise/releases?page=1)
+
+### Option 2: Clone and import
+
+The other option, which is far more flexible, but can be a hassle is to clone the github, then add the cloned directory to your python path. You can do this in python with the following command:
 
 ```python
 import sys
-sys.path.append('<path-to-defiant>/defiant')
+sys.path.append('<path-to-defiant>/')
 from defiant import OptimalStatistic
 ```
 
