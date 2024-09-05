@@ -13,7 +13,7 @@ TODO: Make this package *conda* installable...
 For now, there are two options for installation,
 
 ### Option 1: pip
-The first option is to use ``pip+git``. For this method you **MUST** install ``ENTERPRISE`` through conda first. I reccomend installing it with ``enterprise_extensions`` for its additional utility. Follow these steps (Verified in python versions: 3.9 & 3.11):
+The first option is to use ``pip+git``. For this method you **MUST** install ``ENTERPRISE`` through conda first. I reccomend installing it with ``enterprise_extensions`` for its additional utility. Follow these steps. This has been verified to work in python versions: 3.9, 3.11, 3.12. You may need to check which version of enterprise gets installed. I suggest using python 3.9, as it has the best compatibility with minimal effort:
 
 ```bash
 conda install -c conda-forge enterprise_extensions
