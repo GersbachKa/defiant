@@ -11,7 +11,6 @@ import scipy.linalg as sl
 import enterprise.signals as ent_sig
 from enterprise.pulsar import BasePulsar
 
-from enterprise.signals.utils import powerlaw
 from la_forge.core import Core
 
 from tqdm.auto import tqdm
@@ -460,15 +459,15 @@ class OptimalStatistic:
             # Calculating the phihat
             if gamma is not None:
                 # Set gamma
-                phihat = powerlaw(np.repeat(self.freqs,2), 0, gamma)
+                phihat = utils.powerlaw(self.freqs, 0, gamma, 2)
             elif self.gwb_name+'_gamma' in pars:
                 # Varied gamma
                 g = pars[self.gwb_name+'_gamma']
-                phihat = powerlaw(np.repeat(self.freqs,2), 0, g)
+                phihat = utils.powerlaw(self.freqs, 0, g, 2)
             else:
                 # Fixed gamma, not supplied
                 g = utils.get_fixed_gwb_gamma(self.pta, self.gwb_name)
-                phihat = powerlaw(np.repeat(self.freqs,2), 0, g)
+                phihat = utils.powerlaw(self.freqs, 0, g, 2)
 
             rho, sig, C, A2, A2s = self._compute_os_iteration(pars, phihat, pair_covariance, 
                                                               fisher_diag_only, use_tqdm)
@@ -504,15 +503,15 @@ class OptimalStatistic:
                 # Calculating the phihat
                 if gamma is not None:
                     # Set gamma
-                    phihat = powerlaw(np.repeat(self.freqs,2), 0, gamma)
+                    phihat = utils.powerlaw(self.freqs, 0, gamma, 2)
                 elif self.gwb_name+'_gamma' in pars:
                     # Varied gamma
                     g = pars[self.gwb_name+'_gamma']
-                    phihat = powerlaw(np.repeat(self.freqs,2), 0, g)
+                    phihat = utils.powerlaw(self.freqs, 0, g, 2)
                 else:
                     # Fixed gamma, not supplied
                     g = utils.get_fixed_gwb_gamma(self.pta, self.gwb_name)
-                    phihat = powerlaw(np.repeat(self.freqs,2), 0, g)
+                    phihat = utils.powerlaw(self.freqs, 0, g, 2)
                 
                 rho,sig,C,A2,A2s = self._compute_os_iteration(pars, phihat, pair_covariance, 
                                                               fisher_diag_only, use_tqdm)

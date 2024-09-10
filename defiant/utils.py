@@ -3,6 +3,7 @@ import numpy as np
 import scipy.linalg as sl
 from scipy.stats import multivariate_normal
 from scipy.linalg import cho_factor, cho_solve
+from enterprise.constants import fyr as f_year
 
 from .custom_exceptions import *
 from .orf_functions import get_orf_function, get_pulsar_separation
@@ -80,7 +81,7 @@ def linear_solve(X,C,r,method=None, fisher_diag_only=False):
             dirty_map = X.T @ cho_solve(cf,r)
 
         elif method.lower() == 'woodbury':
-            # Woodbury method requires C to have shape [2 x N_pairs x N_pairs]
+            # This woodbury method requires C to have shape [2 x N_pairs x N_pairs]
             if C.shape[0] != 2 or C.shape[1] != C.shape[2]:
                 raise ValueError('Woodbury method requires C to have shape [2 x N_pairs x N_pairs]')
             
@@ -113,6 +114,41 @@ def linear_solve(X,C,r,method=None, fisher_diag_only=False):
     else:
         msg = f'Unknown method \'{method}\' for linear solving.'
         raise NameError(msg)
+    
+
+def powerlaw(fgw, log10_A=0.0, gamma=13./3., modes=1):
+    """A function to create a power-law Power Spectral Density (PSD).
+
+    Given the non-repeating set of gravitational wave frequencies, this function
+    will calculate the power-law PSD using the given log amplitude and spectral index.
+    Setting modes>1 will add duplicate frequencies to the PSD. (i.e. if you have sine and
+    cosine modes for each frequency, set modes=2).
+
+    This uses the equation: S(f) = A**2 / (12 * pi**2 * f**3) * (f/f_year)**(-gamma) * df
+    where A is the amplitude, gamma is the spectral index, f is the frequency, and df 
+    is the frequency bin width.
+
+
+    Args:
+        fgw (np.ndarray): The (non-repeating) gravitational wave frequencies. [n]
+        log10_A (float): The log_10 amplitude of the power-law. Defaults to 0.0.
+        gamma (float): The spectral index. Defaults to 13./3..
+        modes (int): The number of modes to use. Defaults to 1.
+
+    Returns:
+        np.ndarray: The power-law PSD at the given frequencies. [modes*n]
+    """
+
+    # Calculate frequency bin widths. Bin 0 starts at f=0 and is up to f[0]
+    df = np.diff(fgw,prepend=[0])
+
+    # Calculate the powerlaw (PSD)
+    pl = 10**(2*log10_A) * (1/(12 * np.pi**2 * f_year**3)) * (fgw/f_year)**(-gamma) * df
+
+    if modes>1:
+        return np.repeat(pl,modes)
+    else:
+        return pl
     
 
 def get_pta_frequencies(pta, gwb_name='gw'):
