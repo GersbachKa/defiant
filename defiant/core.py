@@ -185,7 +185,7 @@ class OptimalStatistic:
         else:
             msg = 'No MCMC samples were given! Set these later or supply ' +\
                   'them when computing the OS.'
-            warn(msg)
+            #warn(msg)
 
         if self.lfcore is not None:
             self.max_like_params = utils.get_max_like_params(self.lfcore)
