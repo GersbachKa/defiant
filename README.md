@@ -36,10 +36,18 @@ sys.path.append('<path-to-defiant>/')
 from defiant import OptimalStatistic
 ```
 
+## Example notebook
+
+As speed, reproducability, and most important: Documentation are all primary concerns with the development of DEFIANT. Frustrated by the inadequate documentation from many packages in PTA science, DEFIANT attempts to be different by being overly documented. As such, a ton of time and care have been put into developing examples for others to copy. The main resource (for now at least) for learning to use DEFIANT is in the notebooks section:
+
+Specifically: [notebooks/many_examples.ipynb](https://github.com/GersbachKa/defiant/blob/main/notebooks/many_examples.ipynb)
+
+Additionally, EVERY function and method have been rigorously commented such that if you have an IDE which shows doc-comments, you should be able to read exhastive descriptions for how to use each. If you find a flaw or an inadequate description, please raise an issue and it will be fixed ASAP!
+
 
 ## Usage
 
-There are many ways in which you can use DEFIANT. Most commonly, folks want to run the Optimal Statistic. This can be found in [defiant.OptimalStatistic](https://github.com/GersbachKa/defiant/blob/main/defiant/core.py) (or equivalently [defiant.core.OptimalStatistic](https://github.com/GersbachKa/defiant/blob/main/defiant/core.py)).
+There are many ways in which you can use DEFIANT. Obviously, DEFIANT is specially built for the Optimal Statistic. This can be found in [defiant.OptimalStatistic](https://github.com/GersbachKa/defiant/blob/main/defiant/core.py) (or equivalently [defiant.core.OptimalStatistic](https://github.com/GersbachKa/defiant/blob/main/defiant/core.py)).
 
 To use the OptimalStatistic, you must instance the object. There are 3 required parameters: 
 1. '[psrs](https://github.com/GersbachKa/defiant/blob/main/defiant/core.py#L45)' -> The list of [enterprise.Pulsar]() objects
