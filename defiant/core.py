@@ -961,6 +961,9 @@ class OptimalStatistic:
 
         Returns:
             numpy.ndarray, numpy.ndarray: The rho_ab and sigma_ab pairwise correlations
+        
+        Raises:
+            ValueError: If NaN values are found in the pair-wise correlations.
         """
         # rho_ab = (X[a] @ phihat @ X[b]) / tr(Z[a] @ phihat @ Z[b] @ phihat)
         # sig_ab = np.sqrt( tr(Z[a] @ phihat @ Z[b] @ phihat) )
@@ -972,6 +975,10 @@ class OptimalStatistic:
 
         rho_ab = numerator/denominator
         sig_ab = 1/np.sqrt(denominator)
+
+        if np.isnan(sig_ab).any():
+            print(os_ex.NaNPairwiseError.extended_response())
+            raise ValueError('NaN values pair-wise uncertainties! Are params valid?')
 
         return rho_ab, sig_ab
 
@@ -1020,6 +1027,10 @@ class OptimalStatistic:
 
             rho_abk[k] =  np.sum(X[a] * phi_til * X[b], axis=1) * norms_abk[k]
             sig_abk[k] =  np.sqrt(np.einsum('ijk,ikj->i', phi_til*Z[a], phi_til*Z[b]) * norms_abk[k]**2)
+
+            if np.isnan(sig_abk[k]).any():
+                print(os_ex.NaNPairwiseError.extended_response())
+                raise os_ex.NaNPairwiseError('NaN values pair-wise uncertainties! Are params valid?')
 
         return rho_abk, sig_abk, norms_abk
 
