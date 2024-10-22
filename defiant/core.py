@@ -56,7 +56,8 @@ class OptimalStatistic:
 
     def __init__(self, psrs, pta, gwb_name='gw', core_path=None, core=None,  
                  chain_path=None, chain=None, param_names=None, 
-                 orfs=['hd'], orf_names=None, pcmc_orf=None, max_chunk=300):
+                 orfs=['hd'], orf_names=None, pcmc_orf=None, max_chunk=300,
+                 clip_z=None):
         """Initializes the OptimalStatistic object.
 
         There are many ways to initialize the OptimalStatistic object, and most
@@ -71,6 +72,18 @@ class OptimalStatistic:
         documentation of OptimalStatistic.set_chain_params()
         
         For info on the orfs, and orf_names check documentation of OptimalStatistic.set_orf()
+
+        *Experimental*
+        The clip_z parameter is an experimental feature that can be used to clip the
+        minimum eigenvalue of the Z matrix products. This can be useful when the data
+        is very noisy and leads to non-positive definite matrices. 
+        The clip_z parameter represents the minimum allowed eigenvalue of the Z matrix
+        when normalized so that the maximum eigenvalue is 1.0. In this way, you cap
+        the maximum condition number for all Z products to 1/clip_z. This generally 
+        should be kept near machine precision, i.e. we suggest using 1e-16.
+
+        Setting this value to None will disable the clipping, and should always be
+        the default option unless you are experiencing issues like NaNPairwiseError.
 
         Args:
             psrs (list): A list of enterprise.pulsar.BasePulsar objects.
@@ -89,6 +102,8 @@ class OptimalStatistic:
                     when using the MCOS. Defaults to None.
             max_chunk (int, optional): The number of allowed simultaneous matrix products to compute. 
                 Defaults to 300.
+            clip_z (float, optional): (Experimental) The minimum eigenvalue of the Z matrix products.
+                Can be useful with very noisy data. Set to None for no clipping. See notes. Defaults to None.
 
         Raises:
             TypeError: If the PTA object is not of type 'enterprise.signals.signal_base.PTA'.
@@ -145,6 +160,10 @@ class OptimalStatistic:
         # Pre-cache matrix quantities
         self._cache = {}
         self._compute_cached_matrices()
+
+        self.clip_z = clip_z
+        if clip_z is not None:
+            warn("Clipping Z matrix products is an experimental feature. Use with caution.")
         
 
 
@@ -783,6 +802,10 @@ class OptimalStatistic:
             except np.linalg.LinAlgError:
                 X[a] = FNr - FNT @ np.linalg.solve(sigma, TNr)
                 Z[a] = FNF - FNT @ np.linalg.solve(sigma, FNT.T)
+
+        if self.clip_z is not None:
+            for i in range(len(Z)):
+                Z[i] = utils.clip_covariance(Z[i], self.clip_z)
 
         return X, Z
     
