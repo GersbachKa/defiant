@@ -13,11 +13,11 @@ TODO: Make this package *conda* installable...
 For now, there are two options for installation,
 
 ### Option 1: pip
-The first option is to use ``pip+git``. For this method you **MUST** install ``ENTERPRISE`` through conda first. I reccomend installing it with ``enterprise_extensions`` for its additional utility. Follow these steps. This has been verified to work in python versions: 3.9, 3.11, 3.12. You may need to check which version of enterprise gets installed. I suggest using python 3.9, as it has the best compatibility with minimal effort:
+The first option is to use ``pip+git``. For this method you **MUST** install ``ENTERPRISE`` through conda first. We recommend installing it with ``enterprise_extensions`` for its additional utility. Follow these steps. This has been verified to work in python versions: 3.9, 3.11, 3.12. 
 
 ```bash
 conda install -c conda-forge enterprise_extensions
-pip install git+https://github.com/GersbachKa/defiant@main
+pip install git+https://github.com/GersbachKa/defiant
 
 # If you are using VScode for your notebooks, I reccomend you use https://pypi.org/project/vscode-tqdm/ 
 # This fixes a bug in the rendering of notebooks. You will also need ipywidgets
