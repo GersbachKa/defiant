@@ -44,7 +44,7 @@ class OptimalStatistic:
         nside (int): The nside of the pixel basis (if using anisotropy).
         lmax (int): The maximum l value of the spherical harmonics (if using anisotropy).
         nmos_iterations (dict): A dictionary of the NMOS iterations.
-
+        sub_tqdm (bool): Whether to use progress bars on frequency and pair covariance calculations.
         _pair_idx (np.ndarray): The index of the pulsar pairs.
         _orf_matrix (np.ndarray): A pulsar matrix of ORF values.
         _mcos_orf (np.ndarray): The ORF for the pair covariance matrix if using 
@@ -56,8 +56,8 @@ class OptimalStatistic:
 
     def __init__(self, psrs, pta, gwb_name='gw', core_path=None, core=None,  
                  chain_path=None, chain=None, param_names=None, 
-                 orfs=['hd'], orf_names=None, pcmc_orf=None, max_chunk=300,
-                 clip_z=None):
+                 orfs=['hd'], orf_names=None, pcmc_orf=None, clip_z=None,
+                 sub_tqdm=False):
         """Initializes the OptimalStatistic object.
 
         There are many ways to initialize the OptimalStatistic object, and most
@@ -74,14 +74,14 @@ class OptimalStatistic:
         For info on the orfs, and orf_names check documentation of OptimalStatistic.set_orf()
 
         *Experimental*
-        The clip_z parameter is an experimental feature that can be used to clip the
+        The clip_z parameter is an experimental feature that can be used to set the
         minimum eigenvalue of the Z matrix products. This can be useful when the data
-        is very noisy and leads to non-positive definite matrices. 
+        is very noisy and leads to non-positive-definite matrices. 
         The clip_z parameter represents the minimum allowed eigenvalue of the Z matrix
         when normalized so that the maximum eigenvalue is 1.0. In this way, you cap
         the maximum condition number for all Z products to 1/clip_z. This generally 
-        should be kept near machine precision, i.e. we suggest using 1e-16.
-
+        should be kept near machine precision. If it is needed, try setting this to
+        a small value i.e. 1e-16 first before increasing it.
         Setting this value to None will disable the clipping, and should always be
         the default option unless you are experiencing issues like NaNPairwiseError.
 
@@ -92,22 +92,27 @@ class OptimalStatistic:
             corepath (str, optional): The location of a pre-saved Core object.
             core (la_forge.core.Core, optional): A la_forge.core.Core object.
             chain_path (str, optional): The location of an PTMCMC chain.
-            chain (np.ndarray, optional): The chain.
+            chain (np.ndarray, optional): The sampled chain.
             param_names (str or list, optional): The names of the chain parameters.
-            orfs (list, optional): An orf name or function or list of orf names or functions. 
-                Defaults to ['hd'].
-            orf_names (str or list, optional): The names of the corresponding orfs. Set to None
-                    for default names.
-            pcmc_orf (str or function, optional): The assumed ORF for the pair covariance matrix.
-                    when using the MCOS. Defaults to None.
-            max_chunk (int, optional): The number of allowed simultaneous matrix products to compute. 
-                Defaults to 300.
-            clip_z (float, optional): (Experimental) The minimum eigenvalue of the Z matrix products.
-                Can be useful with very noisy data. Set to None for no clipping. See notes. Defaults to None.
+            orfs (list, optional): An orf name or function or list of orf names 
+                or functions. See OptimalStatistic.set_orf(). Defaults to ['hd'].
+            orf_names (str or list, optional): The names of the corresponding orfs. 
+                See OptimalStatistic.set_orf(). Set to None for default names.
+            pcmc_orf (str or function, optional): The assumed ORF for the pair 
+                covariance matrix when using the MCOS. See OptimalStatistic.set_orf(). 
+                Defaults to None.
+            max_chunk (int, optional): The number of allowed simultaneous matrix 
+                products to compute. Defaults to 300.
+            clip_z (float, optional): (Experimental) The minimum eigenvalue of the 
+                Z matrix products. Can be useful with very noisy data. Set to None 
+                for no clipping. See doc comments for details. Defaults to None.
+            sub_tqdm (bool, optional): Whether to use progress bars on frequency and
+                pair covariance calculations. Defaults to False.
 
         Raises:
             TypeError: If the PTA object is not of type 'enterprise.signals.signal_base.PTA'.
-            TypeError: If the pulsars in the psrs list are not a list or of type 'enterprise.pulsar.BasePulsar'.
+            TypeError: If the pulsars in the psrs list are not a list or of type 
+                'enterprise.pulsar.BasePulsar'.
         """
         if type(pta) == ent_sig.signal_base.PTA:
             self.pta = pta
@@ -149,7 +154,7 @@ class OptimalStatistic:
 
         self.nmos_iterations = {}
 
-        self._max_chunk = max_chunk
+        self._max_chunk = 300 # Users can set after creation if they want to change it
         
         # Check for marginalizing timing model
         self._marginalizing_timing_model = False
@@ -165,11 +170,12 @@ class OptimalStatistic:
         if clip_z is not None:
             warn("Clipping Z matrix products is an experimental feature. Use with caution.")
         
-
+        self.sub_tqdm = sub_tqdm
+        
 
     def set_chain_params(self, core=None, core_path=None, chain_path=None, 
                          chain=None, param_names=None):
-        """A method to add MCMC chains to an OSpluplus object. 
+        """A method to add MCMC chains to an OptimalStatistic object. 
 
         This method takes a number of different forms of MCMC chains and creates
         a la_forge.core.Core object for use with noise marginalization or maximum 
@@ -180,6 +186,10 @@ class OptimalStatistic:
             3. chain_path  
             4. chain & param_names   
             5. chain
+
+        The core object can then be accessed through self.lfcore with the maximum
+        likelihood parameters stored in self.max_like_params or through its chain
+        index in self.max_like_idx.
 
         Args:
             core (la_forge.core.Core, optional): A Core object. 
@@ -206,7 +216,102 @@ class OptimalStatistic:
             #warn(msg)
 
         if self.lfcore is not None:
-            self.max_like_params = utils.get_max_like_params(self.lfcore)
+            params, idx = utils.get_max_like_params(self.lfcore)
+            self.max_like_params = params
+            self.max_like_idx = idx
+
+
+    def get_chain_params(self, N=1, idx=None, format='dict', freespec_fix=False, 
+                         return_idx=False):
+        """A method to get samples from the self.lfcore object.
+
+        This method is a helper method to either get random samples from the chain
+        or to get specific samples if 'idx' is supplied. This function can be useful
+        when you want to know which parameters were used in a particular iteration
+        of the noise marginalizing process. This can especially be helpful with 
+        varried gamma CURN models.
+
+        If 'idx' is None then this method will return N random samples from the chain.
+        If 'idx' is either an int or an array of ints, then this method will return
+        the samples at those specific indexes. 
+        NOTE: 'idx' must refer to the unburned indexes of the chain. (i.e. idx=0 will
+        be the first sample in the chain, which will usually be in the burn-in.)
+        NOTE: N is ignored if idx is supplied.
+
+        The 'format' parameter can be set to either 'dict' or 'array'. If 'dict' is
+        chosen, then the samples will be returned as a list of dictionaries where the
+        keys are the parameter names. If 'array' is chosen, then the samples will be
+        returned as a numpy.ndarray.
+        NOTE: If using 'array' to get the parameters associated with each 
+        index i in array[:,i] you can use self.lfcore.params.
+
+        The 'freespec_fix' parameter is used to fix a minor bug in enterprise which
+        expects the freespec GWB parameters to be of the form 'gw_log10_rho' instead
+        of the sampled 'gw_log10_rho_0', 'gw_log10_rho_1', .... Enabling this
+        flag will add an additional key value pair to the dictionary return. 
+        NOTE: This will only be applied to the 'dict' format.
+
+        The 'return_idx' parameter is used to return the indexes of the samples that
+        were returned. This can be useful if you wish to know which index the samples
+        were taken from. 
+
+        Args:
+            N (int, optional): The number of random samples to generate. Defaults to 1.
+            idx (int or np.ndarray, optional): The index or indexes of the samples to return.
+                Set to None for random samples. Defaults to None.
+            format (str): The format of the return. Can be 'dict' or 'array'.
+                Defaults to 'dict'.
+            freespec_fix (bool): Whether to fix the freespec GWB parameter names 
+                to make Enterprise happy. Defaults to False.
+            return_idx (bool): Whether to return the indexes of the samples. Defaults to False.
+
+        Raises:
+            ValueError: If the chain parameters are not set. Set with self.set_chain_params().
+            ValueError: If the format is not either 'dict' or 'array'.
+
+        Returns:
+            The outputs of this method change depending on the 'format' and 'return_idx'
+
+            If 'return_idx' is False:
+                - Either a list of dictionaries or a numpy.ndarray of the samples.
+            If 'return_idx' is True:
+                - A tuple where the first element is the samples and the second is the indexes.
+        """
+
+        if self.lfcore is None:
+            msg = 'No chain parameters set! Set these before calling this function.'
+            raise ValueError(msg)
+        
+        if idx is None:
+            # If indexes are not supplied, then choose them randomly without burn-in
+            idx = np.random.randint(self.lfcore.burn, self.lfcore.chain.shape[0], N)
+        else:
+            if type(idx) == int:
+                idx = [idx]
+            idx = np.array(idx)
+
+        
+        if format == 'array':
+            if return_idx:
+                return self.lfcore.chain[idx], idx
+            return self.lfcore.chain[idx]
+        elif format == 'dict':
+            ret = []
+            for i in idx:
+                d = {p:v for p,v in zip(self.lfcore.params, self.lfcore.chain[i])}
+                if not freespec_fix:
+                    ret.append(d)
+                else:
+                    # This changes the 'gw_log10_rho_0', 'gw_log10_rho_1', ... into
+                    # a single 'gw_log10_rho'
+                    nd = utils.freespec_param_fix(d, self.gwb_name)
+                    ret.append(nd)
+            if return_idx:
+                return ret, idx
+            return ret
+        else:
+            msg = f"Format {format} not recognized. Use 'dict' or 'array'."
+            raise ValueError(msg)
 
 
     def set_orf(self, orfs=['hd'], orf_names=None, pcmc_orf=None):
@@ -229,13 +334,22 @@ class OptimalStatistic:
             - 'l_' or 'legendre_': Legendre polynomials where the number after 
                     the _ is the degree
             
+        *Experimental*
         pcmc_orf is an experimental feature that aims to curb the problematic 
-        nature of pair covariance matrix with the MCOS. 
+        nature of pair covariance matrix with the MCOS. In order to construct
+        the pair covariance matrix, an assumed ORF must be used. With a single 
+        ORF, the answer is trivial, but with multiple ORFs, the ratio of power
+        for each component is not known a priori. This can lead to large changes
+        in the covariance matrix for minor changes in the assumed power in each
+        component. The pcmc_orf parameter allows the user to set an assumed ORF
+        which will override the default behavior of the MCOS. This can be especially
+        usefull when using many ORFs or components of the ORF are expected to be
+        near zero.
 
         If this argument is set to None (default): 
-            - The typical behavior will be used, this being that the
-            power per process will be the normalized non-pair covariant MCOS 
-            multiplied by the CURN amplitude. 
+            - The typical behavior will be used, this being that the power per 
+            process will be the normalized non-pair covariant MCOS multiplied 
+            by the CURN amplitude. 
         If this argument is set to a str: 
             - The pair covariance matrix will be computed using a singular ORF 
             function specified (i.e. 'hd').
@@ -247,11 +361,11 @@ class OptimalStatistic:
         
         Args:
             orfs (str or function or list): An ORF string, function or list of 
-                    strings and/or functions. Note that a custom function must 
-                    accept two enterprise.pulsar.BasePulsar objects as inputs 
-                    and outputs a float for their ORF.
+                strings and/or functions. Note that a custom function must 
+                accept two enterprise.pulsar.BasePulsar objects as inputs 
+                and outputs a float for their ORF.
             orf_names (list, optional): The names of the corresponding orfs. Set to None
-                    for default names.
+                for default names.
             pcmc_orf (str or function, optional): The assumed ORF for the pair covariance 
                     matrix. when using the MCOS. Defaults to None.
 
@@ -393,7 +507,7 @@ class OptimalStatistic:
         
 
     def compute_OS(self, params=None, N=1, gamma=None, pair_covariance=False, 
-                   return_pair_vals=True, fisher_diag_only=False, use_tqdm=True):
+                   return_pair_vals=True, fisher_diag=False, use_tqdm=True):
         """Compute the OS and its various modifications.
 
         This is one of 2 main functions of the OptimalStatistic class. This function
@@ -415,157 +529,160 @@ class OptimalStatistic:
         If you are using a varied gamma CURN model, you can either:
             - Set a particular gamma value for all NMOS iterations by setting gamma
             - Or set gamma=None and the function will default to each iterations' gamma value
+            or the fixed gamma value if used
+
+        Users can choose to forgo returning the pairwise values (i.e. rho, sig, C)
+        when executing this method by setting return_pair_vals=False. This can be useful
+        when you are only interested in the OS estimators and wish to save memory as
+        the pairwise covariance matrices can be very large. 
+
+        The 'params' argument also has the additional functionality to allow users
+        to supply specific parameter index or indexes by setting params to an int or
+        a list of ints.
 
         There is also an option to use only the diagonal elements of the Fisher matrix,
         which can be useful if you are trying to measure many single component OS processes
         simultaneously. Keep this on True unless you know what you are doing.
 
         Args:
-            params (dict, optional): A dictionary of key:value parameters. 
-                Defaults to maximum likelihood. Only used if N=1.
-            N (int): The number of NMOS iterations to run. If 1, uses params. Defaults to 1.
+            params (dict, list, int, optional): The parameters to use in the OS. 
+                Users can supply any of the following for this argument:
+                    - dict: A dictionary of parameter values
+                    - list: A list of dictionaries of parameter values
+                    - int: An index of a parameter vector in the chain
+                    - list: A list of indexes of parameter vectors in the chain
+                    - None: If N==1, defaults to maximum likelihood.
+                    - None: If N>1, use random samples from the chain. (NMOS)
+            N (int): The number of NMOS iterations to run. If params is not None, 
+                this is argument ignored.
             gamma (float, optional): The spectral index to use for analysis. If set to None,
                 this function first checks if gamma is in params, otherwise it will
                 assume the PTA model is a fixed gamma and take it from there. Defaults to None.
             pair_covariance (bool): Whether to use pair covariance. Defaults to False.
             return_pair_vals (bool): Whether to return the xi, rho, sig, C values. Defaults to True.
-            fisher_diag_only (bool): Whether to zero the off-diagonal elements of the
-                fisher matrix.
+            fisher_diag (bool): Whether to zero the off-diagonal elements of the
+                fisher matrix. Defaults to False.
             use_tqdm (bool): Whether to use a progress bar. Defaults to True.
 
         Raises:
             ValueError: If params is None and to la_forge core is set.
             ValueError: If Noise Marginalization is attempted without a La forge core.
-            os_ex.NMOSInteruptError: If the noise marginalization iterations are interupted.
 
         Returns:
-            Return values are very different depending on which options you choose.
+            tuple: Return values are very different depending on which options you choose.
+            Every value is either returned as an np.array or float depending on context.
+
+            If return_pair_vals is True:
+                - returns xi, rho, sig, C, A2, A2s, param_index
+            If return_pair_vals is False:
+                - returns A2, A2s, param_index
             
-            Values marked with a * are floats while every other return is an np.array.
-            If N=1 and return_pair_vals=False:
-                - returns A2*, A2S*
-            If N=1 and return_pair_vals=True:
-                - returns xi, rho, sig, C, A2*, A2S*
-            If N>1 and return_pair_vals=False:
-                - returns A2, A2S, param_index
-            If N>1 and return_pair_vals=True:
-                - returns xi, rho, sig, C, A2, A2S, param_index
-            
-            A2 (np.ndarray/float) - The OS amplitude estimators at 1/yr
-            A2s (np.ndarray/float) - The 1-sigma uncertainties of A2
-            xi (np.ndarray) - The pair separations of the pulsars
-            rho (np.ndarray) - The pair correlated powers
-            sig (np.ndarray) - The pair uncertainties in rho
-            C (np.ndarray) - The pair covariance matrix (either a vector or matrix)
-            param_index (np.ndarray) - The index of the parameter vectors used in NM each iteration
+            xi (np.ndarray) - The pair separations of the pulsars [npairs]
+            rho (np.ndarray) - The pair correlated powers [N x npairs]
+            sig (np.ndarray) - The pair uncertainties in rho [N x npairs]
+            C (np.ndarray) - The pair covariance matrix [N x npairs x npairs]
+            A2 (np.ndarray/float) - The OS amplitude estimators at 1/yr [N x Norfs]
+            A2s (np.ndarray/float) - Can be either:
+                - The 1-sigma uncertainties of A2 if norfs==1 [N]
+                - A covariance matrix on the fits if norfs>1 [N x Norfs x Norfs]
+            param_index (np.ndarray) - The index(es) of the parameter vectors used 
+                in NM each iteration. If no indexes are found indexes will be -1 [N]
         """
-        # TODO: return gamma values used in some form as well!
+        # First, get the parameter dictionaries
+        all_pars, all_idx, all_gamma = self._parse_params(params, N, gamma)    
 
-        if N==1:
-            if params is None and self.lfcore is None:
-                msg = "No parameters given and no chain files to default to!"
-                raise ValueError(msg)
-            
-            elif params is None and self.lfcore is not None:
-                msg = 'No parameters set without noise marginalization, defaulting '+\
-                      'to maximum likelihood OS.'
-                warn(msg)
-
-                params = self.max_like_params
-                
-            pars = utils.freespec_param_fix(params,self.gwb_name)
-
-            # Calculating the phihat
-            if gamma is not None:
-                # Set gamma
-                phihat = utils.powerlaw(self.freqs, 0, gamma, 2)
-            elif self.gwb_name+'_gamma' in pars:
-                # Varied gamma
-                g = pars[self.gwb_name+'_gamma']
-                phihat = utils.powerlaw(self.freqs, 0, g, 2)
-            else:
-                # Fixed gamma, not supplied
-                g = utils.get_fixed_gwb_gamma(self.pta, self.gwb_name)
-                phihat = utils.powerlaw(self.freqs, 0, g, 2)
-
-            rho, sig, C, A2, A2s = self._compute_os_iteration(pars, phihat, pair_covariance, 
-                                                              fisher_diag_only, use_tqdm)
-            
-            if return_pair_vals:
-                xi,_ = utils.compute_pulsar_pair_separations(self.psrs, self._pair_idx)
-                return xi, rho, sig, C, A2, A2s
-            else:
-                return A2, A2s
-        
-        # Noise marginalized            
-        if self.lfcore is None:
-            msg = 'Cannot Noise marginalize without a La forge core!'
-            raise ValueError(msg)
-
-        
+        # Now setup the return values inside of the self.nmos_iterations
         self.nmos_iterations = {'A2':[],'A2s':[],'param_index':[]}
         if return_pair_vals:
             xi,_ = utils.compute_pulsar_pair_separations(self.psrs, self._pair_idx)
             self.nmos_iterations['xi'] = xi
             self.nmos_iterations['rho'] = []
             self.nmos_iterations['sig'] = []
-            self.nmos_iterations['C'] = []
-        try:
-            iterable = tqdm(range(N),desc='NM Iterations') if use_tqdm  else range(N)
-        
-            for iter in iterable:
-                rand_i = np.random.random_integers(self.lfcore.burn, self.lfcore.chain.shape[0]-1)
-                params = {p:v for p,v in zip(self.lfcore.params,self.lfcore.chain[rand_i])}
-                
-                pars = utils.freespec_param_fix(params,self.gwb_name)
+            self.nmos_iterations['C'] = []   
 
-                # Calculating the phihat
-                if gamma is not None:
-                    # Set gamma
-                    phihat = utils.powerlaw(self.freqs, 0, gamma, 2)
-                elif self.gwb_name+'_gamma' in pars:
-                    # Varied gamma
-                    g = pars[self.gwb_name+'_gamma']
-                    phihat = utils.powerlaw(self.freqs, 0, g, 2)
+        if use_tqdm and len(all_pars)>1:
+            iterable = tqdm(range(len(all_pars)),desc='NMOS Iters')
+        else:
+            # Single iteration or no tqdm
+            iterable = range(len(all_pars))
+
+        for i in iterable:
+            par, idx, gam = all_pars[i], all_idx[i], all_gamma[i]
+            phihat = utils.powerlaw(self.freqs, 0, gam, 2) # Sine and Cosine
+
+            # Get the handy OS matrix products
+            X, Z = self._compute_XZ(par)
+
+            # Now compute the pairwise correlations and uncertainties
+            rho_ab, sig_ab = self._compute_rho_sig(X, Z, phihat)
+
+            # Compute the covariance matrix
+            if pair_covariance:
+                method = 'woodbury'
+                a2_est = utils.get_a2_estimate(par, self.freqs, gam, self.gwb_name, self.lfcore)
+
+                # Compute the pair covariance matrix: 3 behaviors
+                if self.norfs==1:
+                    # Single ORF
+                    C = pc._compute_pair_covariance(Z, phihat, phihat, self._orf_matrix[0],
+                                np.square(sig_ab), a2_est, use_tqdm and self.sub_tqdm, 
+                                self._max_chunk)
+                        
+                elif self.norfs>1 and self._mcos_orf is not None:
+                    # Assumed ORF with MCOS
+                    C = pc._compute_pair_covariance(Z, phihat, phihat, self._mcos_orf,
+                                np.square(sig_ab), a2_est, use_tqdm and self.sub_tqdm, 
+                                self._max_chunk)
+                        
                 else:
-                    # Fixed gamma, not supplied
-                    g = utils.get_fixed_gwb_gamma(self.pta, self.gwb_name)
-                    phihat = utils.powerlaw(self.freqs, 0, g, 2)
+                    # Default behavior
+                    C = pc._compute_mcos_pair_covariance(Z, phihat, phihat, 
+                                self._orf_matrix, self.orf_design_matrix, rho_ab, sig_ab, 
+                                np.square(sig_ab), a2_est, use_tqdm and self.sub_tqdm, 
+                                self._max_chunk)
                 
-                rho,sig,C,A2,A2s = self._compute_os_iteration(pars, phihat, pair_covariance, 
-                                                              fisher_diag_only, use_tqdm)
+            else:
+                method = 'diagonal'
+                C = np.diag(sig_ab**2)
 
-                self.nmos_iterations['A2'].append(A2)
-                self.nmos_iterations['A2s'].append(A2s)
-                self.nmos_iterations['param_index'].append(rand_i)
-                
-                if return_pair_vals:
-                    self.nmos_iterations['rho'].append(rho)
-                    self.nmos_iterations['sig'].append(sig)
-                    self.nmos_iterations['C'].append(C)
+            # Now that we have the data, model, and covariance, we can compute!
+            s = np.diag(sig_ab**2)
 
-        except Exception as e:
-            msg = 'Stopping NMOS iterations. Calculated values are can be found '+\
-                  'in OptimalStatistic.nmos_iterations.'
-            raise os_ex.NMOSInteruptError(msg) from e
+            A2, A2s = utils.linear_solve(self.orf_design_matrix, C, rho_ab, s, 
+                                         method, fisher_diag)
 
+            A2 = np.squeeze(A2) if self.norfs>1 else A2.item()
+            A2s = np.squeeze(A2s) if self.norfs>1 else np.sqrt(A2s.item())
+
+            self.nmos_iterations['A2'].append(A2)
+            self.nmos_iterations['A2s'].append(A2s)
+            self.nmos_iterations['param_index'].append(idx)
+            if return_pair_vals:
+                self.nmos_iterations['rho'].append(rho_ab)
+                self.nmos_iterations['sig'].append(sig_ab)
+                self.nmos_iterations['C'].append(C)
         
-        A2 = np.array( self.nmos_iterations['A2'] )
-        A2s = np.array( self.nmos_iterations['A2s'] )
-        param_index = np.array( self.nmos_iterations['param_index'] )
+        # Setup our return values
+        A2 = np.squeeze( self.nmos_iterations['A2'] )
+        A2 = A2.item() if A2.size==1 else A2
+        A2s = np.squeeze( self.nmos_iterations['A2s'] )
+        A2s = A2s.item() if A2s.size==1 else A2s
+        param_index = np.squeeze( self.nmos_iterations['param_index'] )
+        param_index = param_index.item() if param_index.size==1 else param_index
 
         if return_pair_vals:
-            xi = self.nmos_iterations['xi']
-            rho = np.array( self.nmos_iterations['rho'] )
-            sig = np.array( self.nmos_iterations['sig'] )
-            C = np.array( self.nmos_iterations['C'] )
+            xi = np.squeeze( self.nmos_iterations['xi'] )
+            rho = np.squeeze( self.nmos_iterations['rho'] )
+            sig = np.squeeze( self.nmos_iterations['sig'] )
+            C = np.squeeze( self.nmos_iterations['C'] )
+            
             return xi, rho, sig, C, A2, A2s, param_index
-
+            
         return A2, A2s, param_index
 
 
     def compute_PFOS(self, params=None, N=1, pair_covariance=False, narrowband=False, 
-                     return_pair_vals=True, fisher_diag_only=False, use_tqdm=True):
+                     return_pair_vals=True, fisher_diag=False, use_tqdm=True):
         """Compute the PFOS and its various modifications.
 
         This is one of 2 main functions of the OptimalStatistic class. This function
@@ -573,7 +690,7 @@ class OptimalStatistic:
         There are many forms in which you can use this function, and checking the 
         decision tree is best for determining exactly what you might want and what 
         parameters to set to accomplish that. 
-
+        
         The basic usage of this function can be boiled down to the following:
         If you want to compute a single iteration of the PFOS:
             - supply a set of params and set N=1. By default, if params=None, this 
@@ -584,122 +701,175 @@ class OptimalStatistic:
         If you want to compute the PFOS with pair covariance:
             - simply set pair_covariance=True. This will also replace the covariance 
               matrix, C, that gets returned.
-        If you are using a varied gamma CURN model, you can either:
-            - Set a particular gamma value for all NM PF OS iterations by setting gamma
-            - Or set gamma=None and the function will default to each iterations' gamma value
+
+        The 'params' argument also has the additional functionality to allow users
+        to supply specific parameter index or indexes by setting params to an int or
+        a list of ints.
+
+        Users can choose to forgo returning the pairwise values (i.e. rhok, sigk, Ck)
+        when executing this method by setting return_pair_vals=False. This can be useful
+        when you are only interested in the PFOS estimators and wish to save memory as
+        the pairwise covariance matrices can be very large. 
+
+        The 'narrowband' argument is used to compute the narrowband-normalized PFOS
+        detailed in Gersbach et al. 2024. This makes an additional simplification 
+        to the PFOS at the cost of accuracy in detectable GWB signals. This is mostly
+        included for legacy and bugfixing purposes.
 
         There is also an option to use only the diagonal elements of the Fisher matrix,
-        which can be useful if you are trying to measure many single component OS processes
+        which can be useful if you are trying to measure many single component PFOS processes
         simultaneously. Keep this on True unless you know what you are doing.
 
         Args:
-            params (dict, optional): A dictionary of key:value parameters. 
-                Defaults to maximum likelihood. Only used if N=1.
-            N (int): The number of NM PF OS iterations to run. If 1, uses params. Defaults to 1.
-            pair_covariance (bool): Whether to use pair covariance. Defaults to False.
+            params (dict, list, int, optional): The parameters to use in the PFOS. 
+                Users can supply any of the following for this argument:
+                    - dict: A dictionary of parameter values
+                    - list: A list of dictionaries of parameter values
+                    - int: An index of a parameter vector in the chain
+                    - list: A list of indexes of parameter vectors in the chain
+                    - None: If N==1, defaults to maximum likelihood.
+                    - None: If N>1, use random samples from the chain. (NM PFOS)
+            N (int): The number of NM PFOS iterations to run. If params is not None, 
+                this is argument ignored.
             narrowband (bool): Whether to use the narrowband-normalized PFOS instead of
                 the default broadband-normalized PFOS. Defaults to False.
-            return_pair_vals (bool): Whether to return the xi, rhok, sigk, Ck values. Defaults to True.
-            fisher_diag_only (bool): Whether to zero the off-diagonal elements of the
-                fisher matrix.
+            pair_covariance (bool): Whether to use pair covariance. Defaults to False.
+            return_pair_vals (bool): Whether to return the xi, rho, sig, C values. Defaults to True.
+            fisher_diag (bool): Whether to zero the off-diagonal elements of the
+                fisher matrix. Defaults to False.
             use_tqdm (bool): Whether to use a progress bar. Defaults to True.
 
         Raises:
             ValueError: If params is None and to la_forge core is set.
             ValueError: If Noise Marginalization is attempted without a La forge core.
-            os_ex.NMOSInteruptError: If the noise marginalization iterations are interupted.
 
         Returns:
-            Return values are very different depending on which options you choose.
-            All values are np.ndarrays.
-            If N=1 and return_pair_vals=False:
-                - returns Sk, Sks
-            If N=1 and return_pair_vals=True:
-                - returns xi, rhok, sigk, Ck, Sk, Sks
-            If N>1 and return_pair_vals=False:
-                - returns Sk, Sks, param_index
-            If N>1 and return_pair_vals=True:
+            tuple: Return values are very different depending on which options you choose.
+            Every value is either returned as an np.array or float depending on context.
+
+            If return_pair_vals is True:
                 - returns xi, rhok, sigk, Ck, Sk, Sks, param_index
+            If return_pair_vals is False:
+                - returns Sk, Sks, param_index
             
-            Sk (np.ndarray) - The PFOS S(f_k) [yr^2] for each frequency number k
-            Sks (np.ndarray) - The 1-sigma uncertainties for Sk
-            xi (np.ndarray) - The pair separations of the pulsars
-            rhok (np.ndarray) - The pair correlated PSD for each frequency number k
-            sigk (np.ndarray) - The pair uncertainties in rhok
-            Ck (np.ndarray) - The pair covariance matrix for each frequency number k
-            param_index (np.ndarray) - The index of the parameter vectors used in each NM iteration
+            xi (np.ndarray) - The pair separations of the pulsars [npairs]
+            rhok (np.ndarray) - The pair correlated powers per frequency [N x nfreq x npairs]
+            sigk (np.ndarray) - The pair uncertainties in rhok [N x nfreq x npairs]
+            Ck (np.ndarray) - The pair covariance matrix per frequency [N x nfreq x npairs x npairs]
+            Sk (np.ndarray) - The PFOS PSD/Tspan estimators at each frequency [N x nfreq x Norfs]
+            Sks (np.ndarray) - Can be either:
+                - The 1-sigma uncertainties of Sk if norfs==1 [N x nfreq]
+                - A covariance matrix on the fits if norfs>1 [N x nfreq x Norfs x Norfs]
+            param_index (np.ndarray) - The index(es) of the parameter vectors used 
+                in NM each iteration. If no indexes are found indexes will be -1 [N]
         """
+        # First, get the parameter dictionaries. Set gamma, but ignore it anyway
+        all_pars, all_idx, _ = self._parse_params(params, N, 1.0)     
 
-        if N==1:
-            if params is None and self.lfcore is None:
-                msg = "No parameters given and no chain files to default to!"
-                raise ValueError(msg)
-            
-            elif params is None and self.lfcore is not None:
-                msg = 'No parameters set without noise marginalization, defaulting '+\
-                      'to maximum likelihood OS.'
-                warn(msg)
-
-                params = self.max_like_params
-
-            pars = utils.freespec_param_fix(params,self.gwb_name)
-            rhok,sigk,Ck,Sk,Sks = self._compute_pfos_iteration(pars, narrowband, 
-                                            pair_covariance, fisher_diag_only, use_tqdm)
-            
-            if return_pair_vals:
-                xi,_ = utils.compute_pulsar_pair_separations(self.psrs,self._pair_idx)
-                return xi,rhok,sigk,Ck,Sk,Sks
-            else:
-                return Sk,Sks
-
-        # Noise marginalized            
-        if self.lfcore is None:
-            msg = 'Cannot Noise marginalize with a Null La forge core! '
-            raise ValueError(msg)
-        
-                
+        # Now setup the return values inside of the self.nmos_iterations
         self.nmos_iterations = {'Sk':[],'Sks':[],'param_index':[]}
         if return_pair_vals:
             xi,_ = utils.compute_pulsar_pair_separations(self.psrs, self._pair_idx)
             self.nmos_iterations['xi'] = xi
             self.nmos_iterations['rhok'] = []
             self.nmos_iterations['sigk'] = []
-            self.nmos_iterations['Ck'] = []
+            self.nmos_iterations['Ck'] = []  
 
-        try:
-            iterable = tqdm(range(N),desc='NM Iterations') if use_tqdm else range(N)
+        # Need GWB signal to compute phi
+        gw_signal = [s for s in self.pta._signalcollections[0].signals if s.signal_id==self.gwb_name][0]
 
-            for iter in iterable:
-                rand_i = np.random.random_integers(self.lfcore.burn, self.lfcore.chain.shape[0]-1)
-                params = {p:v for p,v in zip(self.lfcore.params,self.lfcore.chain[rand_i])}
-                pars = utils.freespec_param_fix(params, self.gwb_name)
-                
-                rhok,sigk,Ck,Sk,Sks = self._compute_pfos_iteration(pars, narrowband, pair_covariance, 
-                                                                   fisher_diag_only, use_tqdm)
+        if use_tqdm and len(all_pars)>1:
+            iterable = tqdm(range(len(all_pars)),desc='NMOS Iters')
+        else:
+            # Single iteration or no tqdm
+            iterable = range(len(all_pars))
+
+        for i in iterable:
+            par, idx = all_pars[i], all_idx[i]
+            # Get the handy OS matrix products
+            X,Z = self._compute_XZ(par)
+
+            # Need the approximate shape of the GWB spectrum
+            phi = gw_signal.get_phi(par)
+
+            # Compute the pairwise correlations, uncertainties and normalizations
+            # for each frequency
+            rho_abk, sig_abk, norm_abk = self._compute_rhok_sigk(X, Z, phi, narrowband)
+
+            # Compute the covariance matrices for each frequency
+            if use_tqdm and self.sub_tqdm:
+                iterable = tqdm(range(self.nfreq),desc='Frequencies',leave=False)
+            else:
+                iterable = range(self.nfreq)
+
+            Ck = []
+            for k in iterable:
+                phi1 = np.zeros(self.nfreq)
+                phi1[k] = 1.0
+                phi1 = np.repeat(phi1,2)
+
+                Sk_est = phi[2*k] 
+
+                phi2 = phi1 if narrowband else phi/Sk_est
+           
+                if pair_covariance:
+                    method = 'woodbury'
+
+                    # Compute the pair covariance matrix: 3 behaviors
+                    if self.norfs==1:
+                        # Single ORF
+                        C = pc._compute_pair_covariance(Z, phi1, phi2, self._orf_matrix[0],
+                                norm_abk[k], Sk_est, use_tqdm and self.sub_tqdm, 
+                                self._max_chunk)
                         
-                self.nmos_iterations['Sk'].append(Sk)
-                self.nmos_iterations['Sks'].append(Sks)
-                self.nmos_iterations['param_index'].append(rand_i)
-                if return_pair_vals:
-                    self.nmos_iterations['rhok'].append(rhok)
-                    self.nmos_iterations['sigk'].append(sigk)
-                    self.nmos_iterations['Ck'].append(Ck)
+                    elif self.norfs>1 and self._mcos_orf is not None:
+                        # Assumed ORF with MCOS
+                        C = pc._compute_pair_covariance(Z, phi1, phi2, self._mcos_orf,
+                                    norm_abk[k], Sk_est, use_tqdm and self.sub_tqdm, 
+                                    self._max_chunk)
+                        
+                    else:
+                        # Default MCOS behavior
+                        C = pc._compute_mcos_pair_covariance(Z, phi1, phi2, self._orf_matrix, 
+                                self.orf_design_matrix, rho_abk[k], sig_abk[k], norm_abk[k], 
+                                Sk_est, use_tqdm and self.sub_tqdm, self._max_chunk)
+                        
+                else:
+                    method = 'diagonal'
+                    C = np.diag(sig_abk[k]**2)
 
-        except Exception as e:
-            msg = 'Stopping NMOS iterations. Calculated values are can be found in '+\
-                  'Optimal_statistic.nmos_iterations.'
-            raise os_ex.NMOSInteruptError(msg) from e
+                Ck.append(C)
+
+            # Done with pair covariance, now compute the PFOS
+            Sk = np.zeros( (self.nfreq,self.norfs) ) 
+            Sks = np.zeros( (self.nfreq,self.norfs,self.norfs) )
+            for k in range(self.nfreq):
+                s_diag = np.diag(sig_abk[k]**2)
+                
+                sk, sksig = utils.linear_solve(self.orf_design_matrix, Ck[k], rho_abk[k], 
+                                               s_diag, method, fisher_diag)
+                
+                Sk[k] = np.squeeze(sk) if self.norfs>1 else sk.item()
+                Sks[k] = np.squeeze(sksig) if self.norfs>1 else np.sqrt(sksig.item()) 
+            
+            self.nmos_iterations['Sk'].append(np.squeeze(Sk))
+            self.nmos_iterations['Sks'].append(np.squeeze(Sks))
+            self.nmos_iterations['param_index'].append(idx)
+            if return_pair_vals:
+                self.nmos_iterations['rhok'].append(rho_abk)
+                self.nmos_iterations['sigk'].append(sig_abk)
+                self.nmos_iterations['Ck'].append(Ck)
 
         
-        Sk = np.array( self.nmos_iterations['Sk'] )
-        Sks = np.array( self.nmos_iterations['Sks'] )
-        param_index = np.array( self.nmos_iterations['param_index'] )
+        Sk = np.squeeze( self.nmos_iterations['Sk'] )
+        Sks = np.squeeze( self.nmos_iterations['Sks'] )
+        param_index = np.squeeze( self.nmos_iterations['param_index'] )
 
         if return_pair_vals:
-            xi = np.array( self.nmos_iterations['xi'] )
-            rhok = np.array( self.nmos_iterations['rhok'] )
-            sigk = np.array( self.nmos_iterations['sigk'] )
-            Ck = np.array( self.nmos_iterations['Ck'] )
+            xi = np.squeeze( self.nmos_iterations['xi'] )
+            rhok = np.squeeze( self.nmos_iterations['rhok'] )
+            sigk = np.squeeze( self.nmos_iterations['sigk'] )
+            Ck = np.squeeze( self.nmos_iterations['Ck'] )
             return xi,rhok, sigk, Ck, Sk, Sks, param_index
     
         return Sk, Sks, param_index
@@ -724,7 +894,7 @@ class OptimalStatistic:
         all_TNr = []
 
         # Getting the F matrices are enterprise version dependent. Move to a function
-        all_F = self._get_F_matrices()
+        all_F = _get_F_matrices(self.pta, self.gwb_name)
 
         for idx,psr_signal in enumerate(self.pta._signalcollections):
             r = psr_signal._residuals
@@ -810,162 +980,106 @@ class OptimalStatistic:
         return X, Z
     
 
-    def _compute_os_iteration(self, params, phihat, pair_covariance, fisher_diag_only, 
-                              use_tqdm):
-        """Compute a single iteration of the OS. Users should use compute_OS() instead.
+    def _parse_params(self, params, N, gamma):
+        """A helper method to parse the parameters for the OS and PFOS.
 
-        An internal function to run a single iteration of the optimal statistic 
-        using the supplied parameter dictionary. This function will give 1-sigma 
-        uncertainties for A2s if there is a single ORF, otherwise it will return 
-        the covaraince matrix between the processes.
+        This method is used to parse the parameters for the OS and PFOS. It is a
+        helper method to the compute_OS() and compute_PFOS() methods. This method
+        is used to normalize the parameters used in these methods while still allowing
+        the user to use a variety of different usage formats.
 
-        Args:
-            params (dict): A dictionary of parameter values for the PTA.
-            phihat (numpy.ndarray): The unit-model spectrum to evaluate the OS with.
-            pair_covariance (bool): Whether to use pair covariance in the solving.
-            fisher_diag_only (bool): Whether to zero the off-diagonal elements of the
-                fisher matrix.
-            use_tqdm (bool): Whether to use a progress bar.
+        This method is hidden from the user and is not meant to be called directly.
 
-        Returns:
-            rho_ab (numpy.ndarray): The pairwise correlated powers.
-            sig_ab (numpy.ndarray): The pairwise uncertainties in rho_ab.
-            C (numpy.ndarray): The pair covariance matrix used.
-            A2 (numpy.ndarray): The \hat{A}^2 of the GWB.
-            A2s (numpy.ndarray): The uncertainty or covariance matrix in Sk for each frequency.
-        """
-        X,Z = self._compute_XZ(params)
-        rho_ab, sig_ab = self._compute_rho_sig(X,Z,phihat)
+        'params' can be either a dictionary, a list of dictionaries, a list of indexes,
+        or a single index. 
 
-        if pair_covariance:
-            solve_method='woodbury'
+        'N' is the number of random parameter vectors to generate. This is only used
+        if 'params' is None. 
 
-            if self.lfcore is not None and self.gwb_name+'_log10_rho_0' in self.lfcore.params:
-                param_cov = utils.freespec_covariance(self.lfcore,self.gwb_name)
-            else:
-                param_cov = np.diag(np.ones_like(self.freqs))
+        'gamma' is the spectral index to use for the analysis. If 'gamma' is a float,
+        then the method will use that value for all iterations. If 'gamma' is an iterable,
+        then the method will use each value for each iteration. If 'gamma' is None, 
+        then the method will first check if gamma is in the parameters, otherwise it will
+        assume that the PTA model is a fixed gamma and take it from there.
 
-            a2_est = utils.fit_a2_from_params(params, gwb_name=self.gwb_name, model_phi=phihat[::2], cov=param_cov)
-
-            if self.norfs>1:
-                # MCOS
-                if self._mcos_orf is not None:
-                    # The user has set an assumed MCOS ORF
-                    C = pc._compute_pair_covariance(Z, phihat, phihat, self._mcos_orf,
-                            np.square(sig_ab), a2_est, use_tqdm, self._max_chunk)
-                else:
-                    # Default behavior
-                    C = pc._compute_mcos_pair_covariance(Z, phihat, phihat, 
-                            self._orf_matrix, self.orf_design_matrix, rho_ab, sig_ab, 
-                            np.square(sig_ab), a2_est, use_tqdm, self._max_chunk)
-            else:
-                # Single component
-                # Splits the covariance matrix into diagonal and off-diagonal elements
-                C = pc._compute_pair_covariance(Z, phihat, phihat, 
-                        self._orf_matrix[0], np.square(sig_ab), a2_est, use_tqdm, self._max_chunk)
-             
-        else:
-            solve_method='diagonal'
-            C = np.square(sig_ab)
-        
-        A2, A2s = utils.linear_solve(self.orf_design_matrix, C, rho_ab[:,None], 
-                                                solve_method, fisher_diag_only)
-        
-        A2 = np.squeeze(A2) if self.norfs>1 else A2.item()
-        A2s = np.squeeze(A2s) if self.norfs>1 else np.sqrt(A2s.item())
-
-        if pair_covariance:
-            C = C[0]+C[1]
-
-        return rho_ab, sig_ab, C, A2, A2s
-
-
-    def _compute_pfos_iteration(self, params, narrowband, pair_covariance, fisher_diag_only, 
-                                use_tqdm):
-        """Compute a single iteration of the PFOS. Users should use compute_PFOS() instead.
-
-        An internal function to run a single iteration of the per frequency 
-        optimal statistic using the supplied parameter dictionary. This function
-        defaults to using the broadband-normalized PFOS. This function will give
-        1-sigma uncertainties for Sks if there is a single ORF, otherwise it will
-        return the covaraince matrix between the processes. Details of the PFOS 
-        implementation can be found in Gersbach et al. 2024.
+        If no indexes are found (i.e. specific parameter vectors are used), then
+        this method with return -1 as the index for those iterations.
 
         Args:
-            params (dict): A dictionary of parameter values for the PTA.
-            narrowband (bool): Whether to use the narrowband-normalized PFOS instead.
-            pair_covariance (bool): Whether to use pair covariance in the solving.
-            fisher_diag_only (bool): Whether to zero the off-diagonal elements of the
-                fisher matrix.
-            use_tqdm (bool): Whether to use a progress bar.
+            params (dict or list, optional): The parameters or indexes to use. Check 
+                the documentation for usage info. Defaults to None.
+            N (int, optional): The number of random parameter vectors to generate. Only used
+                if params is None. Defaults to 1.
+            gamma (float or list, optional): The spectral index to use for the analysis. Check
+                documentation for usage info. Defaults to None.
+
+        Raises:
+            ValueError: If params is not a dictionary, list of dictionaries, or list of indexes.
+            ValueError: If gamma is not a float or a list of floats.
+            ValueError: If gamma is not the same length as the number of iterations.
+            ValueError: If the parameters are not able to be determined.
 
         Returns:
-            rho_abk (numpy.ndarray): The pairwise correlated powers for each frequency.
-            sig_abk (numpy.ndarray): The pairwise uncertainties in rho_abk for each frequency.
-            Ck (numpy.ndarray): The pair covariance matrix used for each frequency.
-            Sk (numpy.ndarray): The PSD(f_k)/T_{span} for each frequency.
-            Sks (numpy.ndarray): The uncertainty or covariance matrix in Sk for each frequency.
+            tuple: A tuple of the parameters, indexes, and gamma values for each iteration.
         """
-        X,Z = self._compute_XZ(params)
-        gw_signal = [s for s in self.pta._signalcollections[0].signals if s.signal_id==self.gwb_name][0]
-        phi = gw_signal.get_phi(params)
-        rho_abk, sig_abk, norm_abk = self._compute_rhok_sigk(X,Z,phi,narrowband)
-
-        Sk = np.zeros( (self.nfreq, self.norfs) )
-        Sks = np.zeros( (self.nfreq, self.norfs,self.norfs) )
-        if pair_covariance:
-            Ck = np.zeros( (self.nfreq,self.npairs,self.npairs) )
-        else:
-            Ck = np.zeros( (self.nfreq,self.npairs) )
-
-        iterable = tqdm(range(self.nfreq),desc='Frequencies',leave=False) \
-            if use_tqdm else range(self.nfreq)
-
-        for k in iterable:
-            sk = phi[2*k]
-
-            phi1 = np.zeros( shape=(len(self.freqs)) )  
-            phi1[k] = 1
-            phi1 = np.repeat(phi1,2)
-
-            phi2 = phi / sk
-
-            if pair_covariance:
-                solve_method = 'woodbury'
-                if self.norfs>1:
-                    # MCOS
-                    if self._mcos_orf is not None:
-                        # The user has set an assumed MCOS ORF
-                        C = pc._compute_pair_covariance(Z, phi1, phi2, self._mcos_orf,
-                                norm_abk[k], sk, use_tqdm, self._max_chunk)
-                    else:
-                        # Default behavior
-                        C = pc._compute_mcos_pair_covariance(Z, phi1, phi2, self._orf_matrix, 
-                                self.orf_design_matrix, rho_abk[k], sig_abk[k], norm_abk[k], sk,
-                                use_tqdm, self._max_chunk)
-                else:
-                    # Single component
-                    C = pc._compute_pair_covariance(Z, phi1, phi2, 
-                            self._orf_matrix[0], norm_abk[k], sk, use_tqdm, self._max_chunk)
-            else:
-                solve_method='diagonal'
-                C = sig_abk[k]**2
         
-            s, ssig = utils.linear_solve(self.orf_design_matrix, C, rho_abk[k,:,None], 
-                                         solve_method, fisher_diag_only)
-            
-            if pair_covariance:
-                Ck[k] = C[0]+C[1]
+        # Get the parameters in the format of a list of dictionaries------------
+        if params is not None:
+            # Reformat so that we always have a list of dictionaries
+            if type(params) is dict:
+                # A single dictionary of parameters
+                idx = [-1]
+                pars = [utils.freespec_param_fix(params, self.gwb_name)]
+            elif hasattr(params, '__iter__') and type(params[0]) is dict:
+                # An iterable of dictionaries
+                idx = [-1]*len(params)
+                pars = [utils.freespec_param_fix(p, self.gwb_name) for p in params]
+            elif hasattr(params, '__iter__') and type(params[0]) is int:
+                # An iterable of indexes
+                idx = params
+                pars = self.get_chain_params(idx=params, format='dict', freespec_fix=True)
+            elif type(params) is int:
+                # A single index
+                idx = [params]
+                pars = [self.get_chain_params(idx=params, format='dict', freespec_fix=True)]
             else:
-                Ck[k] = C
-            Sk[k] = np.squeeze(s) if self.norfs>1 else s.item()
-            Sks[k] = np.squeeze(ssig) if self.norfs>1 else np.sqrt(ssig.item()) 
+                msg = "params must be a dictionary, list of dictionaries, or list of indexes."
+                raise ValueError(msg)
+        elif N==1:
+            # Default to maximum likelihood
+            idx = [self.max_like_idx]
+            pars = [utils.freespec_param_fix(self.max_like_params, self.gwb_name)]
+        elif N>1:
+            # Default to noise marginalization
+            pars, idx = self.get_chain_params(N, format='dict', return_idx=True,
+                                              freespec_fix=True)
+        else:
+            msg = "Unable to determine parameters. Set either params or N>=1."
+            raise ValueError(msg)
+        
+        # Deal with gamma values -----------------------------------------------
+        if gamma is not None:
+            # Set gamma, check if list or single value
+            if hasattr(gamma, '__iter__'):
+                gam = gamma
+            elif type(gamma) is float:
+                gam = [gamma]*len(pars)
+            else:
+                msg = "gamma must be a float or a list of floats."
+                raise ValueError(msg)
+            # Check if gamma is the right length
+            if len(gam) != len(pars):
+                msg = "gamma must be a single float or the same length as the number of iterations."
+                raise ValueError(msg)
+        elif self.gwb_name+'_gamma' in pars[0]:
+            # Gamma is none, check if it is in the parameters
+            gam = [p[self.gwb_name+'_gamma'] for p in pars]
+        else:
+            # Gamma is none and not in the parameters, get fixed gamma if available
+            gam = utils.get_fixed_gwb_gamma(self.pta, self.gwb_name)
+            gam = [gam]*len(pars)
 
-        Sk = np.squeeze(Sk) 
-        Sks = np.squeeze(Sks)
-        Ck = np.squeeze(Ck)
-
-        return rho_abk, sig_abk, Ck, Sk, Sks
+        return pars, idx, gam
 
     
     def _compute_rho_sig(self, X, Z, phihat):
@@ -1058,31 +1172,32 @@ class OptimalStatistic:
         return rho_abk, sig_abk, norms_abk
 
 
-    def _get_F_matrices(self):
-        """A function to get the F matrices for all pulsars
+def _get_F_matrices(pta, gwb_name):
+    """A function to get the F matrices for all pulsars
 
-        Since getting the F matrices can be enterprise version dependent, this
-        helper function is used as a quick way to get these matrices and handle 
-        that version dependency.
+    Since getting the F matrices can be enterprise version dependent, this
+    helper function is used as a quick way to get these matrices and handle 
+    that version dependency.
 
-        Returns:
-            list: A list of F matrices for each pulsar
-        """
-        F = []
-        try:
-            # Some versions of enterprise let you script the pulsar signal
-            F = [psrsig[self.gwb_name].get_basis() for psrsig in self.pta._signalcollections]
-        except:
-            # And some don't
-            for psrsig in self.pta._signalcollections:
-                for sig in psrsig.signals:
-                    if sig.signal_id == self.gwb_name:
-                        F.append(sig.get_basis())
-                        break
+    Returns:
+        list: A list of F matrices for each pulsar
+    """
+    F = []
+    try:
+        # Some versions of enterprise let you script the pulsar signal
+        F = [psrsig[gwb_name].get_basis() for psrsig in pta._signalcollections]
+
+    except:
+        # And some don't
+        for psrsig in pta._signalcollections:
+            for sig in psrsig.signals:
+                if sig.signal_id == gwb_name:
+                    F.append(sig.get_basis())
+                    break
             
-            if len(F)!=len(self.pta._signalcollections):
-                raise ValueError('No GWB signal found in PTA._signalcollections[0].signals!')
-        return F
+        if len(F)!=len(pta._signalcollections):
+            raise ValueError('No GWB signal found in PTA._signalcollections[:].signals!')
+    return F
 
 
 def _solveD(N_obj, right, left):
