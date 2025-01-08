@@ -9,30 +9,35 @@ from .custom_exceptions import *
 from .orf_functions import get_orf_function, get_pulsar_separation
 
 
-def linear_solve(X,C,r,method=None, fisher_diag_only=False):
-    """A simple method for minimizing the chi-square 
+def linear_solve(X, C, r, s=None,  method=None, fisher_diag=False):
+    """A method for minimizing the chi-square for a gaussian likelihood.
     
     This function minimizes (r - X*theta)^T C^(-1) (r - X*theta), where r is the 
     data column vector (N x 1) , X is a design matrix (N x M), and C is the 
     covariance matrix (N x N). This function will analytically minimize to find
     the solution vector (M x 1). 
     This function also allows users to only use the diagonal elements of the fisher 
-    matrix by setting fisher_diag_only to True. This is useful for cases where you 
+    matrix by setting fisher_diag to True. This is useful for cases where you 
     wish to compute many single model fits with a single calculation.
     
     method must be one of the following:
-        - 'diagonal': Supplied C is the diagonal covariance matrix
-        - 'exact': Use exact matrix inverses
-        - 'pinv': Use pseudo matrix inverses
-        - 'cholesky': Use cholesky decomposition for forward substitution
-        - 'solve': Use numpy.linalg.solve for forward substitution
-        - 'woodbury': Use the Woodbury matrix identity to reduce condition number
+        - 'diagonal': The covariance matrix is diagonal
+        - 'exact': Use exact matrix inverses (np.linalg.inv)
+        - 'pinv': Use pseudo matrix inverses (np.linalg.pinv)
+        - 'cholesky': Use cholesky decomposition for forward substitution (scipy.linalg.cho_factor)
+        - 'solve': Use numpy.linalg.solve for forward substitution (np.linalg.solve)
+        - 'woodbury': Use the Woodbury matrix identity to invert C^-1 = (A + K)^-1 
+            where A is a diagonal matrix and K is a dense matrix. This requires the
+            's' parameter to be the diagonal components of A.
 
     Args:
         X (ndarray): The design matrix (N x M)
-        C (ndarray): The covariance matrix (N x N) or diagonal matrix (N x 1)
+        C (ndarray): The covariance matrix (N x N)
         r (ndarray): The residual vector (N x 1)
-        method (str, optional): The method of solving to use
+        s (ndarray): The diagonal components of the A matrix for the 
+            Woodbury method (N x N). Defaults to None.
+        method (str, optional): The method of solving to use. Defaults to diagonal 
+            if C is diagonal or pinv if dense.
         fisher_diag_only (bool): Whether to zero the off-diagonal elements of the
             Fisher matrix. Defaults to False.
 
@@ -44,36 +49,32 @@ def linear_solve(X,C,r,method=None, fisher_diag_only=False):
         theta (ndarray): The solution vector theta (M x 1)
         cov (ndarray): The covariance matrix between linear elements (M x M)
     """
+    X = X[:,None] if len(X.shape) == 1 else X
+    r = r[:,None] if len(r.shape) == 1 else r
 
-    if method is None:
-        # TODO: Automate method switching
-        if len(C.shape)>1:
-            # Assume square matrix
-            condition_num = np.linalg.cond(C)
-            method = 'pinv'
-        else:
-            # Assume the diagonal covariance
-            method = 'diagonal'
-
+    if method is None: # Basic automatic method selection
+        method = 'diagonal' if is_diagonal(C) else 'pinv'
+        
     if method.lower() in ['exact','pinv','diagonal','solve','cholesky','woodbury']:
         
         if method.lower() == 'diagonal':
-            fisher = X.T @ np.diag(1/C[:]) @ X
-            dirty_map = X.T @ np.diag(1/C[:]) @ r
+            Cinv = np.diag(1/np.diag(C))
+            fisher = X.T @ Cinv @ X
+            dirty_map = X.T @ Cinv @ r
 
         elif method.lower() == 'exact':
             Cinv = np.linalg.inv(C)
-            fisher = (X.T @ Cinv @ X)
-            dirty_map = (X.T @ Cinv @ r)
+            fisher = X.T @ Cinv @ X
+            dirty_map = X.T @ Cinv @ r
 
         elif method.lower() == 'pinv':
             Cinv = np.linalg.pinv(C)
-            fisher = (X.T @ Cinv @ X)
-            dirty_map = (X.T @ Cinv @ r)
+            fisher = X.T @ Cinv @ X
+            dirty_map = X.T @ Cinv @ r
 
         elif method.lower() == 'solve':
-            fisher = (X.T @ np.linalg.solve(C,X))
-            dirty_map = (X.T @ np.linalg.solve(C,r))
+            fisher = X.T @ np.linalg.solve(C,X)
+            dirty_map = X.T @ np.linalg.solve(C,r)
 
         elif method.lower() == 'cholesky':
             cf = cho_factor(C)
@@ -81,14 +82,15 @@ def linear_solve(X,C,r,method=None, fisher_diag_only=False):
             dirty_map = X.T @ cho_solve(cf,r)
 
         elif method.lower() == 'woodbury':
-            # This woodbury method requires C to have shape [2 x N_pairs x N_pairs]
-            if C.shape[0] != 2 or C.shape[1] != C.shape[2]:
-                raise ValueError('Woodbury method requires C to have shape [2 x N_pairs x N_pairs]')
+            # This method requires 's' = A, the diagonally dominant element of C
+            # For the PTA optimal statistic case, this is just np.diag(sig_ab**2)
+            if s is None:
+                raise ValueError('Woodbury method requires the diagonal components of A to be supplied!')
             
             # Use same notation as https://en.wikipedia.org/wiki/Woodbury_matrix_identity
-            A = C[0]
+            A = s
+            K = C - A
             In = np.eye(A.shape[0])
-            K = C[1]
         
             cinv = woodbury_inverse(A,In,In,K)
 
@@ -101,7 +103,7 @@ def linear_solve(X,C,r,method=None, fisher_diag_only=False):
             
 
         if fisher.size>1:
-            if fisher_diag_only:
+            if fisher_diag:
                 cov = np.diag( 1/np.diag(fisher) )
             else:
                 cov = np.linalg.pinv(fisher)
@@ -216,7 +218,10 @@ def get_max_like_params(lfcore):
         lfcore (la_forge.core.Core): A core object containing the MCMC chains
 
     Returns:
-        dict: A dictionary of the maximum likelihood parameters
+        tuple: A tuple of:
+            - A dictionary of the maximum likelihood parameters
+            - The index of the maximum likelihood in the la_forge.core.Core() 
+            chain (including burn-in)
     """
     burn = lfcore.burn
     lnlike = lfcore.chain[burn:,lfcore.params.index('lnlike')]
@@ -224,7 +229,7 @@ def get_max_like_params(lfcore):
     values = lfcore.chain[max_i]
     params = {p:v for p,v in zip(lfcore.params,values)}
 
-    return params
+    return params, max_i
     
 
 def compute_pulsar_pair_separations(psrs, pair_idx=None):
@@ -294,7 +299,71 @@ def fit_a2_from_params(params, pta=None, gwb_name='gw', model_phi=None, cov=None
     gwb_signal = [s for s in pta._signalcollections[0].signals if s.signal_id==gwb_name][0]
     rho = gwb_signal.get_phi(pars)
 
-    a2,_ = linear_solve(model_phi, cov, rho, None)
+    a2,_ = linear_solve(model_phi, cov, rho)
+    return a2.item()
+
+
+def get_a2_estimate(params, freqs, gamma, gwb_name, lfcore=None):
+    """A function to get the estimated GWB amplitude at 1/yr given parameters.
+
+    This function is intended for use for the pair covariance amplitude estimation
+    for the GWB. This function will return the estimated amplitude at 1/yr given
+    the parameters, frequencies, and gamma. 
+    There are many ways this function can be used:
+        - If the amplitude is in the params and gamma is not, this function will
+        return the this amplitude squared. Note that this assumes that the gamma
+        used in the model is the same as 'gamma'.
+        - If the amplitude and gamma are in the params, this function will return
+        the amplitude squared. Even if the gamma is different from the one used in
+        the model, this function will recalculate the amplitude for the new gamma.
+        - If the amplitude is not in the params, this function will assume that the
+        model is a freespec model and will calculate the amplitude by fitting the
+        a powerlaw model to the rho parameters. If lfcore is supplied, this function
+        will weight the amplitude by the variance in the parameter estimates. Otherwise,
+        this function will assume equal weighting.
+
+    Args:
+        params (dict): A dictionary of parameter name:value pairs
+        freqs (np.ndarray): The set of frequencies for which the PTA is modeling.
+        gamma (float): The spectral index for the power-law model amplitude fit.
+        gwb_name (str): The name of the GWB in the PTA model such that 
+            gwb_name+'_log10_A' is the amplitude.
+        lfcore (la_forge.core.Core, optional): The core object made from a freespec MCMC.
+
+    Returns:
+        float: The estimated square amplitude of the GWB.
+    """
+
+    if gwb_name+'_log10_A' in params:
+        # Amplitude is in the params dictionary!
+        if gwb_name+'_gamma' not in params:
+            # Gamma is not in the params, assume that 'gamma' was used to measure
+            return 10**(2*params[gwb_name+'_log10_A'])
+
+        # Gamma in params
+        if params[gwb_name+'_gamma'] == gamma:
+            # Gamma given is the same as the one in the params (no re-calculation needed)
+            return 10**(2*params[gwb_name+'_log10_A'])
+        
+        # Gamma is in the params but is different. Need to recalculate
+        model = powerlaw(freqs, 0, gamma, 1)
+        rho = powerlaw(freqs, params[gwb_name+'_log10_A'], params[gwb_name+'_gamma'], 1)
+        cov = np.diag(np.ones(len(freqs)))
+        
+    else:
+        # Amplitude is not present, assume we have a freespec
+        pars = freespec_param_fix(params, gwb_name) # Add the gwb_log10_rho key
+
+        model = powerlaw(freqs, 0, gamma, 1)
+        rho = 10**(2*pars[gwb_name+'_log10_rho'])
+        if lfcore is not None:
+            # Weight by the variance in the parameter estimates
+            cov = freespec_covariance(lfcore, gwb_name)
+        else:
+            # Equal weighting
+            cov = np.diag(np.ones(len(freqs)))
+    
+    a2,_ = linear_solve(model, cov, rho, method='pinv')
     return a2.item()
 
 
@@ -403,7 +472,7 @@ def binned_pair_correlations(xi, rho, sig, bins=10, orf='hd'):
             subSig = (sig[sortMask,:][:,sortMask])[l:h,l:h]
             subORF = orf_func(subXi)[:,None]
 
-            r,s2 = linear_solve(subORF,subSig,subRho,'pinv')
+            r,s2 = linear_solve(subORF,subSig,subRho,method='pinv')
 
             xiavg[i] = np.average(subXi)
             bin_orf = orf_func(xiavg[i])
@@ -691,3 +760,19 @@ def woodbury_inverse(A, U, C, V, ret_cond = False):
         return tot_inv, np.linalg.cond(CVAU)
     
     return tot_inv
+
+def is_diagonal(C):
+    """A function to check if a matrix is diagonal.
+
+    Args:
+        C (np.ndarray): A 2D matrix to check for diagonality
+
+    Returns:
+        bool: True if the matrix is diagonal, False otherwise
+    
+    Raises:
+        ValueError: If the matrix is not 2D
+    """
+    if len(C.shape) != 2:
+        raise ValueError('Matrix must be 2D!')
+    return np.all( C == np.diag(np.diag(C)) )

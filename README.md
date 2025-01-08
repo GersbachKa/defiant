@@ -38,7 +38,7 @@ from defiant import OptimalStatistic
 
 ## Example notebook
 
-As speed, reproducability, and most important: Documentation are all primary concerns with the development of DEFIANT. Frustrated by the inadequate documentation from many packages in PTA science, DEFIANT attempts to be different by being overly documented. As such, a ton of time and care have been put into developing examples for others to copy. The main resource (for now at least) for learning to use DEFIANT is in the notebooks section:
+Speed, reproducability, and most important, documentation, are all primary concerns with the development of DEFIANT. Frustrated by the inadequate documentation from many packages in PTA science, DEFIANT attempts to be different by being overly documented and detailed in every component. As such, a ton of time and care have been put into developing examples for others to copy. The main resource (for now at least) for learning to use DEFIANT is in the notebooks section:
 
 Specifically: [notebooks/many_examples.ipynb](https://github.com/GersbachKa/defiant/blob/main/notebooks/many_examples.ipynb)
 

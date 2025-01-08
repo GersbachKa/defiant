@@ -6,7 +6,7 @@ from . import utils
 from .orf_functions import get_orf_function
 
 
-def create_correlation_plot(xi,rho,sig,C,A2,A2s,bins=10,orf=['hd'],eig_thresh=1e-10,
+def create_correlation_plot(xi,rho,sig,C,A2,A2s,bins=10,orf=['hd'],clip=1e-10,
                             **subplot_kwargs):
     """A function to create a pulsar separation vs correlation plot
 
@@ -27,18 +27,20 @@ def create_correlation_plot(xi,rho,sig,C,A2,A2s,bins=10,orf=['hd'],eig_thresh=1e
         - 'st' or 'scalar_tensor': Scalar tensor
 
     Args:
-        xi (_type_): _description_
-        rho (_type_): _description_
-        sig (_type_): _description_
-        C (_type_): _description_
-        A2 (_type_): _description_
-        A2s (_type_): _description_
-
-    Raises:
-        Exception: _description_
-
-    Returns:
-        _type_: _description_
+        xi (np.ndarray): The pulsar separation values.
+        rho (np.ndarray): The correlation values rho_ab (or rho_abk).
+        sig (np.ndarray): The uncertainty in the correlation values.
+        C (np.ndarray): The pair covariance matrix for the correlations.
+        A2 (float): The A^2 (or Sk) value for the correlations. Can be multi-component.
+        A2s (float): Either the 1-sigma uncertainty in the A^2 value or covariance matrix
+            fit on the A2 fits.
+        bins (int): The number of bins to use for the binned correlation estimators.
+            Defaults to 10.
+        orf (str or list): The orf to use for the correlations. Only used if C is 
+            a dense covariance matrix. Defaults to 'hd'.
+        clip (float): The minimum allowed eigenvalue of the A2s covariance matrix.
+            Only used if the number of ORFs is greater than 1. Defaults to 1e-10.
+        subplot_kwargs: Keyword arguments for pyplot's subplots function.
     """
     if not hasattr(orf,'__iter__'):
         orf = [orf]
@@ -46,12 +48,12 @@ def create_correlation_plot(xi,rho,sig,C,A2,A2s,bins=10,orf=['hd'],eig_thresh=1e
     fig, ax = plt.subplots(**subplot_kwargs)
 
     # Get bin averaged values
-    if len(C.shape) > 2:
-        # Pair covariant
-        xia,rhoa,siga = utils.binned_pair_correlations(xi,rho,C,bins,orf)
-    else:
+    if utils.is_diagonal(C):
         # Traditional
-        xia,rhoa,siga = utils.binned_pair_correlations(xi,rho,sig,bins,orf)
+        xia,rhoa,siga = utils.binned_pair_correlations(xi,rho,sig,bins,orf[0])
+    else:
+        # Pair covariant
+        xia,rhoa,siga = utils.binned_pair_correlations(xi,rho,C,bins,orf[0])
     
     # Plot correlations
     ax.errorbar(xia,rhoa,siga,fmt='oC0',label='Binned Correlations',capsize=3)
@@ -60,7 +62,7 @@ def create_correlation_plot(xi,rho,sig,C,A2,A2s,bins=10,orf=['hd'],eig_thresh=1e
 
     if np.array([A2]).size>1:
         # Multi-component
-        means,mean_sig = utils.calculate_mean_sigma_for_MCOS(xi_range,A2,A2s,orf,clip_thresh=eig_thresh)
+        means,mean_sig = utils.calculate_mean_sigma_for_MCOS(xi_range,A2,A2s,orf,clip_thresh=clip)
         # Plot the means
         ax.plot(xi_range, means, 'C1', label='$A^2$ Fit')
         ax.fill_between(xi_range, means-mean_sig, means+mean_sig, color='C1', alpha=0.1)
@@ -78,9 +80,6 @@ def create_correlation_plot(xi,rho,sig,C,A2,A2s,bins=10,orf=['hd'],eig_thresh=1e
     plt.xlim(0,np.pi)
     return fig, ax
     
-
-
-
 
 # P-P Plotting class -----------------------------------------------------------
 

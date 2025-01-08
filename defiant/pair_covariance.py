@@ -38,7 +38,7 @@ def _compute_pair_covariance(Z, phi1, phi2, orf, norm_ab, a2_est, use_tqdm, max_
     fact_c = _factored_pair_covariance(Z, phi1, phi2, orf, norm_ab, 
                                        use_tqdm, max_chunk)
     
-    return np.array(( fact_c[0], a2_est*fact_c[1] + a2_est**2*fact_c[2] ))
+    return fact_c[0] + a2_est*fact_c[1] + a2_est**2*fact_c[2]
 
 
 def _compute_mcos_pair_covariance(Z, phi1, phi2, orf, design, 
@@ -91,7 +91,7 @@ def _compute_mcos_pair_covariance(Z, phi1, phi2, orf, design,
 
     fact_c = _factored_pair_covariance(Z, phi1, phi2, cor_pow, norm_ab, 
                                        use_tqdm, max_chunk)
-    return np.array(( fact_c[0], fact_c[1] + fact_c[2] ))
+    return fact_c[0] + fact_c[1] + fact_c[2]
 
 
 # Hidden function which directly calculates the factored pair covariance matrix.
