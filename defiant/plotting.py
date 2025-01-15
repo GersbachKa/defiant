@@ -65,13 +65,13 @@ def create_correlation_plot(xi,rho,sig,C,A2,A2s,bins=10,orf=['hd'],clip=1e-10,
         means,mean_sig = utils.calculate_mean_sigma_for_MCOS(xi_range,A2,A2s,orf,clip_thresh=clip)
         # Plot the means
         ax.plot(xi_range, means, 'C1', label='$A^2$ Fit')
-        ax.fill_between(xi_range, means-mean_sig, means+mean_sig, color='C1', alpha=0.1)
+        ax.fill_between(xi_range, means-mean_sig, means+mean_sig, color='C1', alpha=0.3)
 
     else:
         # Single component
         orf_mod = get_orf_function(orf[0])(xi_range)
         ax.plot(xi_range, A2*orf_mod, 'C1', label='$A^2$ Fit')
-        ax.fill_between(xi_range, (A2-A2s)*orf_mod, (A2+A2s)*orf_mod, color='C1', alpha=0.1)    
+        ax.fill_between(xi_range, (A2-A2s)*orf_mod, (A2+A2s)*orf_mod, color='C1', alpha=0.3)    
 
     ax.set_xlabel('Pulsar Separation (radians)')
     ax.set_ylabel('Correlated Power')
