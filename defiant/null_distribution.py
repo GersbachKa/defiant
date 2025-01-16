@@ -5,6 +5,9 @@ from tqdm.auto import tqdm
 
 from . import utils
 
+##------------------------------------------------------------------------------
+## Null distribution functions
+##------------------------------------------------------------------------------
 
 def phase_shift_OS(OS_obj, params=None, gamma=None, n_shifts=1000, use_tqdm=True):
     """A function to compute the p-value of the OS using phase shifts.
@@ -22,12 +25,12 @@ def phase_shift_OS(OS_obj, params=None, gamma=None, n_shifts=1000, use_tqdm=True
     The 'params' argument behaves identically to the 'params' argument in the
     OS_obj.compute_OS() function. These usages are: 
         - If 'params' is left as None, then the function will use the maximum 
-          likelihood parameters. Note that you can still set a fixed gamma value.
+            likelihood parameters. Note that you can still set a fixed gamma value.
         - If 'params' is a dictionary, then the function will use these parameters.
-          Note that you can still set a fixed gamma value.
+            Note that you can still set a fixed gamma value.
         - If 'params' is a integer, then the function will interpret it as a chain
-          index and use the parameters at that index. Note that you can still set
-          a fixed gamma value.
+            index and use the parameters at that index. Note that you can still set
+            a fixed gamma value.
 
     Do note that this function does NOT support noise marginalization. If you wish
     to perform noise marginalization, you should use this function for each iteration
@@ -102,6 +105,58 @@ def phase_shift_OS(OS_obj, params=None, gamma=None, n_shifts=1000, use_tqdm=True
 
 def sky_scramble_OS(OS_obj, params=None, gamma=None, n_scrambles=1000, swap_pos=False, 
                     use_tqdm=True):
+    """A function to compute the p-value of the OS using sky scrambles.
+
+    This function compute the p-value, target SNR, and null distribution of the
+    (non pair covariant) optimal statistic SNR using sky scrambling. This is done
+    by creating a new, random design matrix and computing the OS using this.
+
+    There are two methods to compute this:
+    - If 'swap_pos' is False: The function will randomly create new pulsar positions
+        and compute the design matrix using these positions. This creates a different
+        distribution of pulsar separations, potentially underestimating the p-value.
+    - If 'swap_pos' is True: The function will randomly swap pulsar positions and
+        compute the design matrix using these positions. This maintains the same
+        pulsar pair distribution, but causes the space of possible pulsar position
+        configuration to be drastically lower. (i.e. with small numbers of pulsars
+        the chance that 2 random configurations are similar is higher)
+
+    This function also supports the multi-component optimal statistic through the
+    multi-component total SNR calculated as sqrt(theta^T @ fisher @ theta), where
+    theta is the measured multi-component amplitudes and fisher is the fisher
+    information matrix.
+
+    The 'params' argument behaves identically to the 'params' argument in the
+    OS_obj.compute_OS() function. These usages are: 
+        - If 'params' is left as None, then the function will use the maximum 
+            likelihood parameters. Note that you can still set a fixed gamma value.
+        - If 'params' is a dictionary, then the function will use these parameters.
+            Note that you can still set a fixed gamma value.
+        - If 'params' is a integer, then the function will interpret it as a chain
+            index and use the parameters at that index. Note that you can still set
+            a fixed gamma value.
+
+    Do note that this function does NOT support noise marginalization. If you wish
+    to perform noise marginalization, you should use this function for each iteration
+    of the noise marginalization process.
+
+    Args:
+        OS_obj (defiant.core.OptimalStatistic): The OptimalStatistic object.
+        params (dict or int, optional): The parameters or indexes to use. Check 
+                the documentation for usage info. Defaults to None.
+        gamma (float, optional): The spectral index to use for the analysis. Check
+                documentation for usage info. Defaults to None.
+        n_scrambles (int): The number of sky scrambles to use. Defaults to 1000.
+        swap_pos (bool): Whether to enable position swapping rather than creating
+                new positions. Defaults to False.
+        use_tqdm (bool): Whether to use tqdm for progress bar. Defaults to True.
+
+    Returns:
+        tuple: A tuple containing 3 elements:
+            - pval (float): The p-value of the OS
+            - target_snr (float): The measured SNR of the OS
+            - null_snr (np.ndarray): The null distribution of the SNR
+    """
     
     # First, get parameter dictionary, and gamma
     pars, idx, gam = OS_obj._parse_params(params, 1, gamma)
@@ -138,7 +193,7 @@ def sky_scramble_OS(OS_obj, params=None, gamma=None, n_scrambles=1000, swap_pos=
             f_xi, new_design = randomly_create_pulsar_positions(OS_obj)
 
         A2_scram, A2s_scram = utils.linear_solve(new_design, C, rho_ab, None, 
-                                             method='diagonal')
+                                                 method='diagonal')
         
         # SNR may be multi-component
         if np.array([A2]).size > 1:
@@ -153,8 +208,110 @@ def sky_scramble_OS(OS_obj, params=None, gamma=None, n_scrambles=1000, swap_pos=
     return pval, target_snr, null_snr
 
 
-def super_scramble():
-    pass
+def super_scramble_OS(OS_obj, params=None, gamma=None, n_scrambles=1000, swap_pos=False, 
+                    use_tqdm=True):
+    """A function to compute the p-value of the OS using both phase shifts and sky scrambles.
+
+    This function compute the p-value, target SNR, and null distribution of the
+    (non pair covariant) optimal statistic SNR using both phase shifts and sky scrambling.
+    This is done by creating a new, random design matrix and randomly phase shifting
+    the rank-reduced fourier matrices X and Z (see phase_shift_OS() for details).
+
+    This function also uses the 'swap_pos' argument to determine whether to use
+    completely new pulsar positions or to swap pulsar positions (see sky_scramble_OS()).
+
+    This function also supports the multi-component optimal statistic through the
+    multi-component total SNR calculated as sqrt(theta^T @ fisher @ theta), where
+    theta is the measured multi-component amplitudes and fisher is the fisher
+    information matrix.
+
+    The 'params' argument behaves identically to the 'params' argument in the
+    OS_obj.compute_OS() function. These usages are: 
+        - If 'params' is left as None, then the function will use the maximum 
+            likelihood parameters. Note that you can still set a fixed gamma value.
+        - If 'params' is a dictionary, then the function will use these parameters.
+            Note that you can still set a fixed gamma value.
+        - If 'params' is a integer, then the function will interpret it as a chain
+            index and use the parameters at that index. Note that you can still set
+            a fixed gamma value.
+    
+    Do note that this function does NOT support noise marginalization. If you wish
+    to perform noise marginalization, you should use this function for each iteration
+    of the noise marginalization process.
+
+    Args:
+        OS_obj (defiant.core.OptimalStatistic): The OptimalStatistic object.
+        params (dict or int, optional): The parameters or indexes to use. Check 
+                the documentation for usage info. Defaults to None.
+        gamma (float, optional): The spectral index to use for the analysis. Check
+                documentation for usage info. Defaults to None.
+        n_scrambles (int): The number of super scrambles to use. Defaults to 1000.
+        swap_pos (bool): Whether to enable position swapping rather than creating
+                new positions. Defaults to False.
+        use_tqdm (bool): Whether to use tqdm for progress bar. Defaults to True.
+
+    Returns:
+        tuple: A tuple containing 3 elements:
+            - pval (float): The p-value of the OS
+            - target_snr (float): The measured SNR of the OS
+            - null_snr (np.ndarray): The null distribution of the SNR
+    """
+    
+    # First, get parameter dictionary, and gamma
+    pars, idx, gam = OS_obj._parse_params(params, 1, gamma)
+    # Only one iteration is allowed, so lets unpack these
+    pars, gam = pars[0], gam[0]
+    phihat = utils.powerlaw(OS_obj.freqs, 0, gam, 2)
+
+    # Calculate the OS matrix products. Will need to shift X but not Z!
+    X,Z = OS_obj._compute_XZ(pars)
+
+    # Compute the OS on this as the signal hypothesis
+    rho_ab, sig_ab = OS_obj._compute_rho_sig(X, Z, phihat)
+    C = np.diag(sig_ab**2)
+
+    A2,A2s = utils.linear_solve(OS_obj.orf_design_matrix, C, rho_ab, 
+                                None, method='diagonal')
+    # SNR may be multi-component
+    if np.array([A2]).size > 1:
+        Cinv = np.diag(1/sig_ab**2) 
+        fisher = OS_obj.orf_design_matrix.T @ Cinv @ OS_obj.orf_design_matrix
+        target_snr = np.sqrt(A2.T @ fisher @ A2).item()
+    else:
+        target_snr = np.squeeze(A2/np.sqrt(A2s)).item()
+
+    # Now we can start the phase shifts
+    null_snr = np.zeros(n_scrambles)
+    iterable = range(n_scrambles) if not tqdm else tqdm(range(n_scrambles), desc='shifts')
+    for i in iterable:
+        # Create a new design matrix
+        if swap_pos:
+            f_xi, new_design = randomly_swap_pulsar_positions(OS_obj)
+        else:
+            f_xi, new_design = randomly_create_pulsar_positions(OS_obj)
+
+        # Create phase shifted data
+        X_rot, Z_rot = randomly_rotate_OS_matrices(X, Z)
+
+        # Compute the OS with this rotation
+        rho_rot, sig_rot = OS_obj._compute_rho_sig(X_rot, Z_rot, phihat)
+        C_rot = np.diag(sig_rot**2)
+
+        A2_scram, A2s_scram = utils.linear_solve(new_design, C_rot, rho_rot, None, 
+                                                 method='diagonal')
+        
+        # SNR may be multi-component
+        if np.array([A2]).size > 1:
+            Cinv_rot = np.diag(1/sig_rot**2)
+            fisher_scram = new_design.T @ Cinv_rot @ new_design
+            null_snr[i] = np.sqrt(A2_scram.T @ fisher_scram @ A2_scram).item()
+        else:
+            null_snr[i] = np.squeeze(A2_scram/np.sqrt(A2s_scram)).item()
+
+    # Now we have a measured SNR and a null distribution. We can compute the p-value
+    pval = np.sum(null_snr >= target_snr)/n_scrambles
+
+    return pval, target_snr, null_snr
 
 
 def GX2(self):
@@ -163,7 +320,9 @@ def GX2(self):
 
 
 
-
+##------------------------------------------------------------------------------
+## Helper functions
+##------------------------------------------------------------------------------
 
 def randomly_rotate_OS_matrices(X, Z):
     """A function to randomly rotate (phase shift) the OS matrices X and Z
