@@ -3,7 +3,7 @@ from . import custom_exceptions as os_ex
 from . import utils
 from . import pair_covariance as pc 
 from . import null_distribution as os_nu
-from . import orf_functions
+from . import orf_functions as orf_funcs
 
 import numpy as np
 import scipy.linalg as sl
@@ -132,7 +132,7 @@ class OptimalStatistic:
 
         self.gwb_name = gwb_name
         
-        self.lfcore, self.max_like_params = None, None
+        self.lfcore, self.max_like_params, self.max_like_idx = None, None, None
         self.set_chain_params(core, core_path, chain_path, chain, param_names)
 
         self.freqs = utils.get_pta_frequencies(pta,gwb_name)
@@ -395,14 +395,16 @@ class OptimalStatistic:
         self.orf_design_matrix = np.zeros( (self.norfs,self.npairs) ) 
         # Used internal for pair covariance
         self._orf_matrix = np.ones( (self.norfs,self.npsr,self.npsr) ) 
+        
+        self.orf_functions = []
 
         for i in range( len(orfs) ):
             orf = orfs[i]
-            name = orfs[i]
+            name = orf_names[i]
 
             if type(orf) == str:
                 # ORF must be pre-defined function
-                cur_orf = orf_functions.get_orf_function(orf)
+                cur_orf = orf_funcs.get_orf_function(orf)
                 name = orf if name is None else name
                 
                 self.orf_names.append(name)
@@ -439,7 +441,7 @@ class OptimalStatistic:
         if pcmc_orf is not None:
             if type(pcmc_orf) == str:
                 # Pre-defined ORF
-                orf = orf_functions.get_orf_function(pcmc_orf)
+                orf = orf_funcs.get_orf_function(pcmc_orf)
             else:
                 # User designed ORF
                 orf = pcmc_orf
@@ -472,7 +474,7 @@ class OptimalStatistic:
             lmax (int, optional): The maximum l value of the spherical harmonics. Defaults to 6.
             pc_orf (str): The ORF to use for the pair covariance matrix. Defaults to 'hd'.
         """
-        orf = orf_functions.get_orf_function(pc_orf)
+        orf = orf_funcs.get_orf_function(pc_orf)
         temp = np.zeros( (self.npsr,self.npsr) )
         for a in range(self.npsr):
             for b in range(a+1,self.npsr):
@@ -482,7 +484,7 @@ class OptimalStatistic:
         self._mcos_orf = temp
 
         if basis.lower() == 'pixel':
-            basis = orf_functions.anisotropic_pixel_basis(self.psrs, nside, self._pair_idx)
+            basis = orf_funcs.anisotropic_pixel_basis(self.psrs, nside, self._pair_idx)
             self.nside = nside
             self.lmax = None
 
@@ -492,7 +494,7 @@ class OptimalStatistic:
             self.norfs = basis.shape[1]
 
         elif basis.lower() == 'spherical':
-            basis = orf_functions.anisotropic_spherical_harmonic_basis(self.psrs, lmax, 
+            basis = orf_funcs.anisotropic_spherical_harmonic_basis(self.psrs, lmax, 
                                                                 nside, self._pair_idx)
             self.nside = nside
             self.lmax = lmax
