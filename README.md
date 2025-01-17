@@ -36,11 +36,13 @@ sys.path.append('<path-to-defiant>/')
 from defiant import OptimalStatistic
 ```
 
-## Example notebook
+## Example notebooks
 
 Speed, reproducability, and most important, documentation, are all primary concerns with the development of DEFIANT. Frustrated by the inadequate documentation from many packages in PTA science, DEFIANT attempts to be different by being overly documented and detailed in every component. As such, a ton of time and care have been put into developing examples for others to copy. The main resource (for now at least) for learning to use DEFIANT is in the notebooks section:
 
 Specifically: [notebooks/many_examples.ipynb](https://github.com/GersbachKa/defiant/blob/main/notebooks/many_examples.ipynb)
+
+And for null distributions: [notebooks/null_distributions.ipynb](https://github.com/GersbachKa/defiant/blob/main/notebooks/null_distributions.ipynb)
 
 Additionally, EVERY function and method have been rigorously commented such that if you have an IDE which shows doc-comments, you should be able to read exhastive descriptions for how to use each. If you find a flaw or an inadequate description, please raise an issue and it will be fixed ASAP!
 
