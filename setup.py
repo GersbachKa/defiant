@@ -8,7 +8,7 @@ setup(
     description='DEFIANT (Data-driven Enhanced Frequentist Inference Analysis with Next-gen Techniques)',
     long_description=readme,
     long_description_content_type="text/markdown",
-    version='0.2.0',
+    version='0.3.0',
     author='Kyle A. Gersbach',
     author_email='gersbach.ka@gmail.com',
     url='https://github.com/GersbachKa/defiant/',
