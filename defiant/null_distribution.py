@@ -183,7 +183,7 @@ def sky_scramble_OS(OS_obj, params=None, gamma=None, n_scrambles=1000, swap_pos=
 
     # Now we can start the phase shifts
     null_snr = np.zeros(n_scrambles)
-    iterable = range(n_scrambles) if not tqdm else tqdm(range(n_scrambles), desc='shifts')
+    iterable = range(n_scrambles) if not tqdm else tqdm(range(n_scrambles), desc='scrambles')
     for i in iterable:
         # With scrambles, we can re-use the data and covariance, we just switch the
         # design matrix
@@ -282,7 +282,7 @@ def super_scramble_OS(OS_obj, params=None, gamma=None, n_scrambles=1000, swap_po
 
     # Now we can start the phase shifts
     null_snr = np.zeros(n_scrambles)
-    iterable = range(n_scrambles) if not tqdm else tqdm(range(n_scrambles), desc='shifts')
+    iterable = range(n_scrambles) if not tqdm else tqdm(range(n_scrambles), desc='s scrambles')
     for i in iterable:
         # Create a new design matrix
         if swap_pos:
