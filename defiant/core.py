@@ -593,6 +593,9 @@ class OptimalStatistic:
         # First, get the parameter dictionaries
         all_pars, all_idx, all_gamma = self._parse_params(params, N, gamma)    
 
+        # Need GWB signal to compute phi
+        gw_signal = [s for s in self.pta._signalcollections[0].signals if s.signal_id==self.gwb_name][0]
+
         # Now setup the return values inside of the self.nmos_iterations
         self.nmos_iterations = {'A2':[],'A2s':[],'param_index':[]}
         if return_pair_vals:
@@ -625,23 +628,20 @@ class OptimalStatistic:
 
                 # Compute the pair covariance matrix: 3 behaviors
                 if self.norfs==1:
-                    # Single ORF
-                    C = pc._compute_pair_covariance(Z, phihat, phihat, self._orf_matrix[0],
-                                np.square(sig_ab), a2_est, use_tqdm and self.sub_tqdm, 
-                                self._max_chunk)
+                    # Single ORF (phi = A2*phihat)
+                    C = pc.create_OS_pair_covariance(Z, phihat, a2_est*phihat, self._orf_matrix[0], 
+                            sig_ab**2, use_tqdm and self.sub_tqdm, self._max_chunk)
                         
                 elif self.norfs>1 and self._mcos_orf is not None:
                     # Assumed ORF with MCOS
-                    C = pc._compute_pair_covariance(Z, phihat, phihat, self._mcos_orf,
-                                np.square(sig_ab), a2_est, use_tqdm and self.sub_tqdm, 
-                                self._max_chunk)
+                    C = pc.create_OS_pair_covariance(Z, phihat, a2_est*phihat, self._mcos_orf, 
+                            sig_ab**2, use_tqdm and self.sub_tqdm, self._max_chunk)
                         
                 else:
                     # Default behavior
-                    C = pc._compute_mcos_pair_covariance(Z, phihat, phihat, 
-                                self._orf_matrix, self.orf_design_matrix, rho_ab, sig_ab, 
-                                np.square(sig_ab), a2_est, use_tqdm and self.sub_tqdm, 
-                                self._max_chunk)
+                    C = pc.create_MCOS_pair_covariance(Z, phihat, self._orf_matrix, 
+                            self.orf_design_matrix, rho_ab, sig_ab, a2_est, 
+                            use_tqdm and self.sub_tqdm, self._max_chunk)
                 
             else:
                 method = 'diagonal'
@@ -804,48 +804,33 @@ class OptimalStatistic:
             else:
                 iterable = range(self.nfreq)
 
-            Ck = []
-            for k in iterable:
-                phi1 = np.zeros(self.nfreq)
-                phi1[k] = 1.0
-                phi1 = np.repeat(phi1,2)
-
-                Sk_est = phi[2*k] 
-
-                phi2 = phi1 if narrowband else phi/Sk_est
-           
-                if pair_covariance:
-                    method = 'woodbury'
-
-                    # Compute the pair covariance matrix: 3 behaviors
-                    if self.norfs==1:
-                        # Single ORF
-                        C = pc._compute_pair_covariance(Z, phi1, phi2, self._orf_matrix[0],
-                                norm_abk[k], Sk_est, use_tqdm and self.sub_tqdm, 
-                                self._max_chunk)
-                        
-                    elif self.norfs>1 and self._mcos_orf is not None:
-                        # Assumed ORF with MCOS
-                        C = pc._compute_pair_covariance(Z, phi1, phi2, self._mcos_orf,
-                                    norm_abk[k], Sk_est, use_tqdm and self.sub_tqdm, 
-                                    self._max_chunk)
-                        
-                    else:
-                        # Default MCOS behavior
-                        C = pc._compute_mcos_pair_covariance(Z, phi1, phi2, self._orf_matrix, 
-                                self.orf_design_matrix, rho_abk[k], sig_abk[k], norm_abk[k], 
-                                Sk_est, use_tqdm and self.sub_tqdm, self._max_chunk)
-                        
+            if pair_covariance:
+                method = 'woodbury'
+                if self.norfs==1:
+                    # Single ORF
+                    Ck = pc.create_PFOS_pair_covariance(Z, phi, self._orf_matrix[0], 
+                            norm_abk, narrowband, use_tqdm and self.sub_tqdm, self._max_chunk)
+                
+                elif self.norfs>1 and self._mcos_orf is not None:
+                    # Assumed ORF with MCOS
+                    Ck = pc.create_PFOS_pair_covariance(Z, phi, self._mcos_orf, 
+                            norm_abk, narrowband, use_tqdm and self.sub_tqdm, self._max_chunk)
+                
                 else:
-                    method = 'diagonal'
-                    C = np.diag(sig_abk[k]**2)
+                    # Default MCOS behavior
+                    Ck = pc.create_MCPFOS_pair_covariance(Z, phi, self._orf_matrix, 
+                            norm_abk, self.orf_design_matrix, rho_abk, sig_abk, 
+                            narrowband, use_tqdm and self.sub_tqdm, self._max_chunk)
 
-                Ck.append(C)
+            else:
+                method = 'diagonal'
+                Ck = np.array([np.diag(sig_abk[k]**2) for k in range(self.nfreq)])
 
             # Done with pair covariance, now compute the PFOS
             Sk = np.zeros( (self.nfreq,self.norfs) ) 
             Sks = np.zeros( (self.nfreq,self.norfs,self.norfs) )
             for k in range(self.nfreq):
+
                 s_diag = np.diag(sig_abk[k]**2)
                 
                 sk, sksig = utils.linear_solve(self.orf_design_matrix, Ck[k], rho_abk[k], 

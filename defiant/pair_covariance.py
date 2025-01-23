@@ -3,134 +3,49 @@ from .custom_exceptions import *
 from .utils import *
 
 import numpy as np
-
-from itertools import combinations, combinations_with_replacement
 from tqdm.auto import tqdm
 
 
-def _compute_pair_covariance(Z, phi1, phi2, orf, norm_ab, a2_est, use_tqdm, max_chunk):
-    """A function to compute the pulsar pair covariance matrix. Not intended for user use.
-
-    This function computes the pulsar pair covariance matrix as described in
-    Gersbach et al. 2024. Specifically, this function separates the diagonal entries 
-    from the off-diagonals so that we can use the woodbury matrix identity for increase 
-    numerical stability. This function uses two forms of phi so as to be agnostic
-    to both the OS and PFOS. phi1 is intended to be either \hat{\phi} in the case
-    of the OS and \tilde{\phi}(f_k) in the case of the PFOS. phi2 is intended to be
-    \hat{\phi} in the case of the OS and \Phi(f_k) in the case of the PFOS. Similarly
-    norm_ab represents the normalization of the pair-wise estimators. For the OS,
-    norm_ab is simply sig_ab. For the PFOS, norm_ab changes depending on if you
-    are using wideband or narrowband normalization. 
-
-    Args:
-        Z (np.ndarray): An array of Z matrix products [N_pulsars x 2N_frequencies x 2N_frequencies]
-        phi1 (np.ndarray): An array of the spectral model [2N_frequencies] (See description)
-        phi2 (np.ndarray): A similar array of the spectral model [2N_frequencies] (See description)
-        orf (np.ndarray): A matrix of the ORF for each pair of pulsars [N_pulsars x N_pulsars]
-        norm_ab (np.ndarray): The normalization terms for each pulsar pair [N_pairs]
-        a2_est (float): The estimated amplitude of the GWB
-        use_tqdm (bool): A flag to use the tqdm progress bar
-        max_chunk (int): The maximum number of simultaneous matrix calculations
-
-    Returns:
-        np.ndarray: The pulsar pair covariance matrix [2, N_pairs x N_pairs]
-    """
-    fact_c = _factored_pair_covariance(Z, phi1, phi2, orf, norm_ab, 
-                                       use_tqdm, max_chunk)
-    
-    return fact_c[0] + a2_est*fact_c[1] + a2_est**2*fact_c[2]
-
-
-def _compute_mcos_pair_covariance(Z, phi1, phi2, orf, design, 
-                                  rho_ab, sig_ab, norm_ab, a2_est,
-                                  use_tqdm, max_chunk):
-    """Compute the pulsar pair covariance matrix with the MCOS. Not intended for user use.
-
-    This function computes the pulsar pair covariance matrix with the MCOS as described in
-    Sardesai et al. 2023 and Gersbach et al. 2024. As was done in the first paper,
-    the pair covariance needs an estimated total correlated power in each pair.
-    We do that by first calculating the non-pair covariant MCOS and then using the 
-    resulting fraction of power in each process multiplied by the CURN amplitude 
-    as an estimate of the total correlated power. This function uses two forms of phi 
-    so as to be agnostic to both the OS and PFOS. phi1 is intended to be either 
-    \hat{\phi} in the case of the OS and \tilde{\phi}(f_k) in the case of the PFOS. 
-    phi2 is intended to be \hat{\phi} in the case of the OS and \Phi(f_k) in the 
-    case of the PFOS. Similarly, norm_ab represents the normalization of the 
-    pair-wise estimators. For the OS, norm_ab is simply sig_ab. For the PFOS, 
-    norm_ab changes depending on if you are using wideband or narrowband normalization.
-
-    Args:
-        Z (np.ndarray): An array of Z matrix products [N_pulsars x 2N_frequencies x 2N_frequencies]
-        phi1 (np.ndarray): An array of the spectral model [2N_frequencies] (See description)
-        phi2 (np.ndarray): A similar array of the spectral model [2N_frequencies] (See description)
-        orf (np.ndarray): A matrix of the ORF for each pair of pulsars [N_pulsars x N_pulsars]
-        design (np.ndarray): The design matrix for the MCOS [N_pairs x M_orfs]
-        rho_ab (np.ndarray): The rho values for each pair of pulsars [N_pairs]
-        sig_ab (np.ndarray): The sig values for each pair of pulsars [N_pairs]
-        norm_ab (np.ndarray): The normalization terms for each pulsar pair [N_pairs]
-        a2_est (float): The estimated amplitude of the GWB
-        use_tqdm (bool): A flag to use the tqdm progress bar
-        max_chunk (int): The maximum number of simultaneous matrix calculations
-
-    Returns:
-        np.ndarray: The pulsar pair covariance matrix [2, N_pairs x N_pairs]
-    """
-    # Need to compute the a no-PC MCOS for amp estimates
-    temp_c = np.square(sig_ab)
-    mcos,_ = linear_solve(design,temp_c,rho_ab,'diagonal')
-
-    # Set negative values to 0
-    mcos[mcos<0] = 0
-
-    # Normalize the power per process
-    norm_pow = mcos/np.sqrt(np.dot(mcos,mcos))
-    est_pow = a2_est*norm_pow
-
-    # Hijack the factored code by giving it correlated power in ORF and A2=1!
-    cor_pow = np.sum([o*a for o,a in zip(orf,est_pow)], axis=0)
-
-    fact_c = _factored_pair_covariance(Z, phi1, phi2, cor_pow, norm_ab, 
-                                       use_tqdm, max_chunk)
-    return fact_c[0] + fact_c[1] + fact_c[2]
-
-
-# Hidden function which directly calculates the factored pair covariance matrix.
-# Exposed functions will call this, but users should avoid.
-def _factored_pair_covariance(Z, phi1, phi2, orf, norm_ab, use_tqdm, max_chunk):
-    """Creates the GW amplitude factored pulsar pair covariance matrix.
+def create_OS_pair_covariance(Z, phihat, phi, orf, norm_ab, use_tqdm=True, max_chunk=300):
+    """Creates the GWB correlated pair covariance matrix for the OS.
 
     This function uses numpy array indexing shenanigans and numpy vectorized
-    operations to compute a factored version of the pulsar pair covariance matrix.
-    The format of the returned covariance matrix is a 3 x N_pairs x N_pairs matrix
-    where the first term should be multiplied by 1, the second by A^2, and
-    the 3rd by A^4 before summing.
+    operations to quickly compute the pulsar pair covariance matrix. This function
+    is designed for the OS but can be hacked to work with the PFOS.
+
+    Importantly, this function uses the separate phihat and phi matrices which represent
+    the unit-amplitude spectral model and the total estimated spectral model respectively.
+    Such that phi = A2 * phihat. With this version, you do not need to estimate the ampltidue
+    and instead estimate phi (which enterprise can do easily).
+
+    For the traditional OS, norm_ab = sig_ab**2.
 
     Args:
-        Z (numpy.ndarray): A N_pulasr array of 2N_frequencies x 2N_frequencies Z matrices from the OS
-        phi1 (numpy.ndarray): A 2N_frequencies array of the estimator's normalized spectral model
-        phi2 (numpy.ndarray): A 2N_frequencies array of the unit spectral shape of the GWB
-        orf (numpy.ndarray): A N_pulsar x N_pulsar matrix of the ORF (or correlated power) 
-                for each pair of pulsars
-        norm_ab (numpy.ndarray): The N_pair array of normalizations of the pair-wise estimators 
-        use_tqdm (bool): A flag to use the tqdm progress bar
+        Z (numpy.ndarray): A N_pulasr array of 2N_frequencies x 2N_frequencies Z matrices from the OS.
+        phihat (numpy.ndarray): A 2N_frequencies array of the unit-amplitude spectral model.
+        phi (numpy.ndarray): A 2N_frequencies array of the estimated spectrum.
+        orf (numpy.ndarray): A N_pulsar x N_pulsar matrix of the ORF for each pair of pulsars.
+        norm_ab (numpy.ndarray): The N_pair array of pair-wise estimator normalizations.
+        use_tqdm (bool): A flag to use the tqdm progress bar. Defaults to True.
         max_chunk (int): The maximum number of simultaneous matrix calculations. 
-                Works best between 100-1000 but depends on the computer. Defaults to 300.
+            Works best between 100-1000 but depends on the computer. Defaults to 300.
 
     Raises:
         PCOSInteruptError: If the pair covariance calculation is interupted
 
     Returns:
-        numpy.ndarray: A 3 x N_pairs x N_pairs matrix of the final amplitude factored covariance matrix
+        numpy.ndarray: A N_pairs x N_pairs matrix of the final covariance matrix
     """
     # Use some pre-calculations to speed up processing
     npsr = len(Z)
-    nfreq = len(Z[0])
+    nfreq = len(Z[0])//2
+    npair = npsr*(npsr-1)//2
 
-    pairs_idx = np.array(list( combinations(range(npsr),2) ),dtype=int)
+    pairs_idx = np.array(np.triu_indices(npsr,1)).T
     a,b = pairs_idx[:,0], pairs_idx[:,1]
 
     # Get pairs of pairs, both the indices of the pairs, and the pulsar indices
-    PoP_idx = np.array(list( combinations_with_replacement(range(len(pairs_idx)),2) ),dtype=int)
+    PoP_idx = np.array(np.triu_indices(npair)).T
     
     PoP = np.zeros((len(PoP_idx),4),dtype=int)
     PoP[:,(0,1)] = pairs_idx[PoP_idx[:,0]] 
@@ -141,12 +56,12 @@ def _factored_pair_covariance(Z, phi1, phi2, orf, norm_ab, use_tqdm, max_chunk):
     psr_inv_match = (PoP[:,(0,1)] == PoP[:,(3,2)]) # checks (a==d,b==c)
 
     # It will be faster to pre-compute some quantities
-    Zphi1 = phi1*Z
-    Zphi2 = phi2*Z
-    Zphi1Zphi2 = np.zeros((npsr,npsr, nfreq,nfreq))
+    # For this, we should compute the Z @ phi @ Z @ phihat and Z @ phihat
+    ZphiZphihat = np.zeros((npsr,npsr, 2*nfreq,2*nfreq))
+    ZphiZphihat[a,b] = phihat*((phi*Z[a]) @ Z[b])
+    ZphiZphihat[b,a] = phihat*((phi*Z[b]) @ Z[a])
 
-    Zphi1Zphi2[a,b] = Zphi1[a] @ Zphi2[b]
-    Zphi1Zphi2[b,a] = Zphi1[b] @ Zphi2[a]
+    Zphihat = phihat*Z
 
     # Create the progress bar
     progress_bar = tqdm(total=len(PoP),desc='PC elements',leave=False) if use_tqdm else None
@@ -156,23 +71,28 @@ def _factored_pair_covariance(Z, phi1, phi2, orf, norm_ab, use_tqdm, max_chunk):
 
     # Define the three cases for the pair covariance
     def case1(a,b,c,d):             #(ab,cd)
+        # = gamma_{ac} gamma_{bd} tr([Z_d phi Z_b] phihat [Z_a phi Z_c] phihat) + 
+        #   gamma_{ad} gamma_{bc} tr([Z_c phi Z_b] phihat [Z_a phi Z_d] phihat)
         a0 = np.zeros_like(a)
         a2 = np.zeros_like(a)
-        a4 = orf[a,c]*orf[d,b] * mpt(Zphi1Zphi2[b,a], Zphi1Zphi2[c,d]) + \
-             orf[a,d]*orf[c,b] * mpt(Zphi1Zphi2[b,a], Zphi1Zphi2[d,c])
-        return [a0,a2,a4]
+        a4 = orf[a,c]*orf[d,b] * mpt(ZphiZphihat[d,b], ZphiZphihat[a,c]) + \
+             orf[a,d]*orf[c,b] * mpt(ZphiZphihat[c,b], ZphiZphihat[a,d])
+        return a0+a2+a4
     
     def case2(a,b,c):               #(ab,ac)
+        # = gamma_{bc}            tr([Z_c phi Z_b] phihat [Z_a] phihat) + 
+        #   gamma_{ac} gamma_{ab} tr([Z_a phi Z_b] phihat [Z_a phi Z_c] phihat)
         a0 = np.zeros_like(a)
-        a2 = orf[b,c] *          mpt(Zphi1[b],        Zphi1Zphi2[a,c])
-        a4 = orf[a,c]*orf[a,b] * mpt(Zphi1Zphi2[b,a], Zphi1Zphi2[c,a])
-        return [a0,a2,a4]
+        a2 = orf[b,c] *          mpt(ZphiZphihat[c,b],Zphihat[a])
+        a4 = orf[a,c]*orf[a,b] * mpt(ZphiZphihat[a,b],ZphiZphihat[a,c])
+        return a0+a2+a4
 
     def case3(a,b):                 #(ab,ab)
-        a0 =               mpt(Zphi1[b],        Zphi1[a])
+        # = tr(Z_b phihat Z_a phihat) + gamma_{ab}^2 tr([Z_a phi Z_b] phihat [Z_a phi Z_b] phihat)
+        a0 =               mpt(Zphihat[b],Zphihat[a])
         a2 = np.zeros_like(a)
-        a4 = orf[a,b]**2 * mpt(Zphi1Zphi2[b,a], Zphi1Zphi2[b,a])
-        return [a0,a2,a4]
+        a4 = orf[a,b]**2 * mpt(ZphiZphihat[b,a],ZphiZphihat[b,a])
+        return a0+a2+a4
 
     # --------------------------------------------------------------------------
     # Chunking code
@@ -188,15 +108,15 @@ def _factored_pair_covariance(Z, phi1, phi2, orf, norm_ab, use_tqdm, max_chunk):
             else:
                 temp = case1(a[l:h],b[l:h],c[l:h],d[l:h])
 
-            C_m[:,idx1[l:h],idx2[l:h]] = temp
-            C_m[:,idx2[l:h],idx1[l:h]] = temp
+            C_m[idx1[l:h],idx2[l:h]] = temp
+            C_m[idx2[l:h],idx1[l:h]] = temp
 
             if use_tqdm: progress_bar.update(h-l)
 
 
     # --------------------------------------------------------------------------
     # Now lets calculate them!
-    C_m = np.zeros((3,len(pairs_idx),len(pairs_idx)),dtype=np.float64)
+    C_m = np.zeros((len(pairs_idx),len(pairs_idx)),dtype=np.float64)
 
     try: # This is used to close the progress bar if an exception occurs
 
@@ -243,16 +163,171 @@ def _factored_pair_covariance(Z, phi1, phi2, orf, norm_ab, use_tqdm, max_chunk):
 
     except Exception as e:
         if use_tqdm: progress_bar.close()
-        tqdm.close()
         msg = 'Exception occured during pair covariance creation!'
         raise PCOSInteruptError(msg) from e
         
     if use_tqdm: progress_bar.close()
 
     # Include the final sigmas
-    C_m[:] *= np.outer(norm_ab,norm_ab)
+    C_m *= np.outer(norm_ab,norm_ab)
 
     return C_m
+
+
+def create_MCOS_pair_covariance(Z, phihat, orfs, design_mat, rho_ab, sig_ab, a2_est, 
+                                use_tqdm=True, max_chunk=300):
+    """Compute the pulsar pair covariance matrix with the MCOS.
+
+    This function computes the pulsar pair covariance matrix with the MCOS as described in
+    Sardesai et al. 2023. This function is designed purely for the OS and not PFOS.
+    
+    The method (detailed in Sardesai et al. 2023) is as follows:
+    - Calculate the non-pair covariant MCOS
+    - Use the resulting fractional power per process to estimate the fractional correlated power
+    - Multiply the fractional correlated power by the CURN amplitude to get the total correlated power
+    - Use the total correlated power to calculate the pair covariance matrix with phi => phihat
+    
+    Args:
+        Z (np.ndarray): An array of Z matrix products [N_pulsars x 2N_frequencies x 2N_frequencies]
+        phihat (numpy.ndarray): An array of the unit-amplitude spectral model [2N_frequencies]
+        orfs (np.ndarray): A matrix of the ORF for each pair of pulsars for each ORF [N_orf x N_pulsars x N_pulsars]
+        design_mat (np.ndarray): The design matrix for the MCOS [N_pairs x M_orfs]
+        rho_ab (np.ndarray): The rho values for each pair of pulsars [N_pairs]
+        sig_ab (np.ndarray): The sig values for each pair of pulsars [N_pairs]
+        a2_est (float): The estimated amplitude of the GWB
+        use_tqdm (bool): A flag to use the tqdm progress bar. Defaults to True.
+        max_chunk (int): The maximum number of simultaneous matrix calculations. 
+            Works best between 100-1000 but depends on the computer. Defaults to 300.
+
+    Returns:
+        np.ndarray: The pulsar pair covariance matrix [2, N_pairs x N_pairs]
+    """
+    # Need to compute the a no-PC MCOS for amp estimates
+    mcos,_ = linear_solve(design_mat, np.diag(sig_ab**2), rho_ab, None, method='diagonal')
+    mcos = mcos[:,0]
+
+    # Set negative values to 0
+    mcos[mcos<0] = 0
+
+    # Normalize the power per process
+    norm_pow = mcos/np.sqrt(np.dot(mcos,mcos))
+    est_pow = a2_est*norm_pow
+
+    # Hijack the create_OS_pair_covariance function by supplying correlated power in the ORFs
+    # instead of giving the power estimate in phi
+    cor_pow = np.sum([o*a for o,a in zip(orfs,est_pow)], axis=0)
+
+    return create_OS_pair_covariance(Z, phihat, phihat, cor_pow, sig_ab**2, use_tqdm, max_chunk)
+
+
+def create_PFOS_pair_covariance(Z, phi, orf, norm_abk, narrowband, use_tqdm=True, max_chunk=300):
+    """Creates the GWB correlated pair covariance matrix for the PFOS.
+
+    This function creates the GWB correlated pair covariance matrix for the PFOS
+    for each frequency bin. This function takes advantage of the create_OS_pair_covariance
+    function where phihat is replaced with \tilde{\phi}(f_k) for each frequency.
+
+    Args:
+        Z (numpy.ndarray): A N_pulasr array of 2N_frequencies x 2N_frequencies Z matrices from the OS.
+        phi (numpy.ndarray): A 2N_frequencies array of the estimated spectrum.
+        orf (numpy.ndarray): A N_pulsar x N_pulsar matrix of the ORF for each pair of pulsars.
+        norm_abk (numpy.ndarray): The N_pair array of PFOS normalizations for each frequency.
+        narrowband (bool): A flag to use the narrowband normalization instead of the broadband normalization.
+        use_tqdm (bool): A flag to use the tqdm progress bar. Defaults to True.
+        max_chunk (int): The maximum number of simultaneous matrix calculations. 
+            Works best between 100-1000 but depends on the computer. Defaults to 300.
+
+    Returns:
+        numpy.ndarray: A N_freq x N_pairs x N_pairs matrix of the final covariance matrix
+    """
+    nfreq = len(Z[0])//2
+    # The frequency selector matrices (set of diagonals)
+    phitilde = np.repeat(np.diag(np.ones(nfreq)),2,axis=1)
+
+    Ck = []
+    iterable = tqdm(range(nfreq),desc='Freq covariances') if use_tqdm else range(nfreq)
+    for k in iterable:
+        if narrowband:
+            # Need to include the S(f_k) in the second \tilde{\phi}(f_k) to get the correct units
+            C = create_OS_pair_covariance(Z, phitilde[k], phi[2*k]*phitilde[k], orf, norm_abk[k], False, max_chunk)
+        else:
+            C = create_OS_pair_covariance(Z, phitilde[k], phi, orf, norm_abk[k], False, max_chunk)
+        Ck.append(C)
+    
+    return np.array(Ck)
+
+
+def create_MCPFOS_pair_covariance(Z, phi, orfs, norm_abk, design_mat, rho_abk, sig_abk,
+                                  narrowband, use_tqdm=True, max_chunk=300):
+    """Create the GWB correlated pair covariance matrix for the Multi Component PFOS.
+
+    This function creates the GWB correlated pair covariance matrix for the MCOS
+    for each frequency bin. This function takes advantage of the create_OS_pair_covariance
+    function where phihat is replaced with \tilde{\phi}(f_k) for each frequency.
+    This function also utilizes the same strategies found in create_MCOS_pair_covariance
+    to estimate the correlated power per process.
+
+    This function computes the pulsar pair covariance matrix with the MCOS as described in
+    Sardesai et al. 2023. 
+    
+    The method (detailed in Sardesai et al. 2023) is as follows:
+    - Calculate the non-pair covariant MCPFOS
+    - Use the resulting fractional power per process per frequency to estimate the 
+        fractional correlated power per frequency
+    - Multiply the fractional correlated power per frequency by the CURN PSD to get 
+        the total correlated power per frequency
+    - Use the total correlated power per frequency to calculate the pair covariance 
+        matrix with phi => \tilde{\phi}(f_k)
+
+    Args:
+        Z (np.ndarray): An array of Z matrix products [N_pulsars x 2N_frequencies x 2N_frequencies]
+        phi (numpy.ndarray): An array of the estimated spectrum [2N_frequencies]
+        orfs (np.ndarray): A matrix of the ORF for each pair of pulsars for each ORF [N_orf x N_pulsars x N_pulsars]
+        norm_abk (np.ndarray): The N_pair array of PFOS normalizations for each frequency [N_freq x N_pairs]
+        design_mat (np.ndarray): The design matrix for the MCOS [N_pairs x M_orfs]
+        rho_abk (np.ndarray): The rho_k values for each pair of pulsars for each frequency [N_freq x N_pairs]
+        sig_abk (np.ndarray): The sig_k values for each pair of pulsars for each frequency [N_freq x N_pairs]
+        narrowband (bool): A flag to use the narrowband normalization instead of the broadband normalization.
+        use_tqdm (bool): A flag to use the tqdm progress bar. Defaults to True.
+        max_chunk (int): The maximum number of simultaneous matrix calculations. 
+            Works best between 100-1000 but depends on the computer. Defaults to 300.
+
+    Returns:
+        np.ndarray: The pulsar pair covariance matrix for each frequency [N_freq x N_pairs x N_pairs] 
+    """
+
+    nfreq = len(Z[0])//2
+    # The frequency selector matrices (set of diagonals)
+    phitilde = np.repeat(np.diag(np.ones(nfreq)),2,axis=1)
+
+    Ck = []
+    iterable = tqdm(range(nfreq),desc='Freq covariances') if use_tqdm else range(nfreq)
+    for k in iterable:
+        # Same process as MCOS but per frequency instead
+        mcos,_ = linear_solve(design_mat, np.diag(sig_abk[k]**2), rho_abk[k], None, 
+                              method='diagonal')
+        mcos = mcos[:,0]
+        mcos[mcos<0] = 0
+
+        norm_pow = mcos/np.sqrt(np.dot(mcos,mcos))
+        est_pow = phi[2*k]*norm_pow
+
+        cor_pow = np.sum([o*a for o,a in zip(orfs,est_pow)], axis=0)
+
+        if narrowband:
+            C = create_OS_pair_covariance(Z, phitilde[k], phitilde[k], cor_pow, norm_abk[k], False, max_chunk)
+        else:
+            # Since the "amplitude" S(f_k) is already passed in through ORF, we need
+            # to remove the S(f_k) from phi
+            C = create_OS_pair_covariance(Z, phitilde[k], phi/phi[2*k], cor_pow, norm_abk[k], False, max_chunk)
+        Ck.append(C)
+
+    return np.array(Ck)
+
+
+#-------------------------------------------------------------------------------
+# Helper functions
+#-------------------------------------------------------------------------------
 
 
 def matrix_product_trace(A,B):
