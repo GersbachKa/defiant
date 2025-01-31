@@ -17,10 +17,15 @@ The first option is to use ``pip+git``. For this method you **MUST** install ``E
 
 ```bash
 conda install -c conda-forge enterprise_extensions
-pip install git+https://github.com/GersbachKa/defiant
+```
 
-# If you are using VScode for your notebooks, I reccomend you use https://pypi.org/project/vscode-tqdm/ 
-# This fixes a bug in the rendering of notebooks. You will also need ipywidgets
+```bash
+pip install git+https://github.com/GersbachKa/defiant
+```
+
+#### Optional: If you are using VScode for your notebooks, you may see errors in the tqdm progress bars, you can fix this with [vscode-tqdm](https://pypi.org/project/vscode-tqdm/)
+
+```bash
 pip install vscode-tqdm ipywidgets
 ```
 
