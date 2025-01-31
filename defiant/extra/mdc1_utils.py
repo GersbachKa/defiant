@@ -5,13 +5,16 @@ import numpy as np
 def get_MDC1_psrs(use_pickle=False):
     """A function to grab the MDC1 dataset and return it as a list of Enterprise Pulsar objects.
 
-    NOTE: If you do not trust me, you should set use_pickle to False and load the pulsars
-    from the par and tim files as pickle files can contain malicous code. If you do
-    trust me, using the pickle file will be much faster and will crash significantly
-    less.
+    NOTE: If you do not trust the authors of this code, you should set use_pickle 
+    to False and load the pulsars from the par and tim files as pickle files can 
+    contain malicous code. If you do trust the authors, using the pickle file will 
+    be much faster and will not crash (thanks Tempo2). We can assure you we would 
+    not put malicous code, but you should be aware of the potential risks of using 
+    an unknown pickle file.
 
     Args:
         use_pickle (bool, optional): Whether to use the pickle file of the MDC1 pulsars.
+            Defaults to False. NOTE: THIS IS A SECURITY RISK IF YOU DO NOT TRUST 
 
     Returns:
         list, dict: A list of MDC1 pulsars and a dictionary of the injected parameters.
