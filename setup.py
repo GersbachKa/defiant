@@ -9,6 +9,7 @@ setup(
     long_description=readme,
     long_description_content_type="text/markdown",
     version='0.4.0',
+    include_package_data=True,
     author='Kyle A. Gersbach',
     author_email='gersbach.ka@gmail.com',
     url='https://github.com/GersbachKa/defiant/',

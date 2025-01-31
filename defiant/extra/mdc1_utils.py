@@ -2,27 +2,42 @@
 import numpy as np
 
 
-def get_MDC1_psrs():
+def get_MDC1_psrs(use_pickle=False):
     """A function to grab the MDC1 dataset and return it as a list of Enterprise Pulsar objects.
+
+    NOTE: If you do not trust me, you should set use_pickle to False and load the pulsars
+    from the par and tim files as pickle files can contain malicous code. If you do
+    trust me, using the pickle file will be much faster and will crash significantly
+    less.
+
+    Args:
+        use_pickle (bool, optional): Whether to use the pickle file of the MDC1 pulsars.
 
     Returns:
         list, dict: A list of MDC1 pulsars and a dictionary of the injected parameters.
     """
-    import enterprise
-    from enterprise.pulsar import Pulsar
-    from glob import glob
-    from tqdm.auto import tqdm
+    if use_pickle:
+        import pickle
+        pickle_loc = __file__[:-13]+'mdc1_psrs.pkl' # Remove this files name, add pickle
+        with open(pickle_loc,'rb') as f:
+            psrs = pickle.load(f)
+    
+    else:
+        import enterprise
+        from enterprise.pulsar import Pulsar
+        from glob import glob
+        from tqdm.auto import tqdm
 
-    datadir = enterprise.__path__[0] + '/datafiles/mdc_open1/'
-    parfiles = sorted(glob(datadir + '/*.par'))
-    timfiles = sorted(glob(datadir + '/*.tim'))
+        datadir = enterprise.__path__[0] + '/datafiles/mdc_open1/'
+        parfiles = sorted(glob(datadir + '/*.par'))
+        timfiles = sorted(glob(datadir + '/*.tim'))
 
 
-    psrs = []
-    for i in tqdm(range(len(parfiles)),desc='Loading MDC1 psrs'):
-        psr = Pulsar(parfiles[i],timfiles[i],)
-        psrs.append(psr)
-        del psr
+        psrs = []
+        for i in tqdm(range(len(parfiles)),desc='Loading MDC1 psrs'):
+            psr = Pulsar(parfiles[i],timfiles[i],)
+            psrs.append(psr)
+            del psr
     
     inj_params = {'gw_log10_A':np.log10(5e-14),'gw_gamma':(13./3.)}
 
