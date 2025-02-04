@@ -138,8 +138,8 @@ class OptimalStatistic:
         self.freqs = utils.get_pta_frequencies(pta,gwb_name)
         self.nfreq = len(self.freqs) 
         
-        self.pair_names = [(a,b) for i,a in enumerate(psr_names) for b in psr_names[i+1:]]
-        self._pair_idx = np.array([(a,b) for a in range(self.npsr) for b in range(a+1,self.npsr)])
+        self._pair_idx = np.array(np.triu_indices(self.npsr,1)).T
+        self.pair_names = [(psr_names[a],psr_names[b]) for a,b in self._pair_idx]
         self.npairs = len(self.pair_names)
 
         self.norfs = 0
