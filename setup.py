@@ -8,7 +8,7 @@ setup(
     description='DEFIANT (Data-driven Enhanced Frequentist Inference Analysis with Next-gen Techniques)',
     long_description=readme,
     long_description_content_type="text/markdown",
-    version='0.4.2',
+    version='0.4.3',
     include_package_data=True,
     author='Kyle A. Gersbach',
     author_email='gersbach.ka@gmail.com',
