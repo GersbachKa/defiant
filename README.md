@@ -4,7 +4,14 @@ DEFIANT (Data-driven Enhanced Frequentist Inference Analysis with Next-gen Techn
 
 This package is primarily based on the work of the [PTA Optimal Statistic](https://arxiv.org/abs/0809.0701) and encorporates some coding techniques from the previous implementation in [enterprise_extensions/frequentist/optimal_statistic.py](https://github.com/nanograv/enterprise_extensions/blob/master/enterprise_extensions/frequentist/optimal_statistic.py) but encorporates the many expansions on the method developed since then. For details on what OS expansions this package supports, check the [Usage](#usage) section.
 
-This code is still in its early stages, so if you have questions reach out to me!
+
+## Citation
+
+If you plan to use this software, please consider citing (and reading) the paper that motivated its creation:
+
+[https://ui.adsabs.harvard.edu/abs/2025PhRvD.111b3027G/abstract](https://ui.adsabs.harvard.edu/abs/2025PhRvD.111b3027G/abstract)
+
+
 
 ## Installation
 
