@@ -220,12 +220,16 @@ def create_MCOS_pair_covariance(Z, phihat, orfs, design_mat, rho_ab, sig_ab, a2_
     return create_OS_pair_covariance(Z, phihat, phihat, cor_pow, sig_ab**2, use_tqdm, max_chunk)
 
 
-def create_PFOS_pair_covariance(Z, phi, orf, norm_abk, narrowband, use_tqdm=True, max_chunk=300):
+def create_PFOS_pair_covariance(Z, phi, orf, norm_abk, narrowband, select_freq=None, 
+                                use_tqdm=True, max_chunk=300):
     """Creates the GWB correlated pair covariance matrix for the PFOS.
 
     This function creates the GWB correlated pair covariance matrix for the PFOS
     for each frequency bin. This function takes advantage of the create_OS_pair_covariance
     function where phihat is replaced with \tilde{\phi}(f_k) for each frequency.
+
+    You can also create covariance matrices for specific frequencies by setting the select_freq
+    parameter to the desired frequency index or None for all frequencies.
 
     Args:
         Z (numpy.ndarray): A N_pulasr array of 2N_frequencies x 2N_frequencies Z matrices from the OS.
@@ -233,6 +237,8 @@ def create_PFOS_pair_covariance(Z, phi, orf, norm_abk, narrowband, use_tqdm=True
         orf (numpy.ndarray): A N_pulsar x N_pulsar matrix of the ORF for each pair of pulsars.
         norm_abk (numpy.ndarray): The N_pair array of PFOS normalizations for each frequency.
         narrowband (bool): A flag to use the narrowband normalization instead of the broadband normalization.
+        select_freq (int): The frequency index to select for the pair covariance calculation. 
+            Defaults to None.
         use_tqdm (bool): A flag to use the tqdm progress bar. Defaults to True.
         max_chunk (int): The maximum number of simultaneous matrix calculations. 
             Works best between 100-1000 but depends on the computer. Defaults to 300.
@@ -243,22 +249,36 @@ def create_PFOS_pair_covariance(Z, phi, orf, norm_abk, narrowband, use_tqdm=True
     nfreq = len(Z[0])//2
     # The frequency selector matrices (set of diagonals)
     phitilde = np.repeat(np.diag(np.ones(nfreq)),2,axis=1)
+    
+    if select_freq is not None:
+        if narrowband:
+            sk = phi[2*select_freq]
+            Ck = create_OS_pair_covariance(Z, phitilde[select_freq], sk*phitilde[select_freq], 
+                                           orf, norm_abk, False, max_chunk)
+        else:
+            Ck = create_OS_pair_covariance(Z, phitilde[select_freq], phi, 
+                                           orf, norm_abk, False, max_chunk)
+            
+        return Ck
 
     Ck = []
     iterable = tqdm(range(nfreq),desc='Freq covariances') if use_tqdm else range(nfreq)
     for k in iterable:
         if narrowband:
             # Need to include the S(f_k) in the second \tilde{\phi}(f_k) to get the correct units
-            C = create_OS_pair_covariance(Z, phitilde[k], phi[2*k]*phitilde[k], orf, norm_abk[k], False, max_chunk)
+            sk = phi[2*k]
+            C = create_OS_pair_covariance(Z, phitilde[k], sk*phitilde[k], 
+                                          orf, norm_abk[k], False, max_chunk)
         else:
-            C = create_OS_pair_covariance(Z, phitilde[k], phi, orf, norm_abk[k], False, max_chunk)
+            C = create_OS_pair_covariance(Z, phitilde[k], phi, 
+                                          orf, norm_abk[k], False, max_chunk)
         Ck.append(C)
     
     return np.array(Ck)
 
 
 def create_MCPFOS_pair_covariance(Z, phi, orfs, norm_abk, design_mat, rho_abk, sig_abk,
-                                  narrowband, use_tqdm=True, max_chunk=300):
+                                  narrowband, select_freq=None, use_tqdm=True, max_chunk=300):
     """Create the GWB correlated pair covariance matrix for the Multi Component PFOS.
 
     This function creates the GWB correlated pair covariance matrix for the MCOS
@@ -279,6 +299,9 @@ def create_MCPFOS_pair_covariance(Z, phi, orfs, norm_abk, design_mat, rho_abk, s
     - Use the total correlated power per frequency to calculate the pair covariance 
         matrix with phi => \tilde{\phi}(f_k)
 
+    The function can also calculate the pair covariance matrix for a specific frequency
+    by setting the select_freq parameter to the desired frequency index or None for all frequencies.
+
     Args:
         Z (np.ndarray): An array of Z matrix products [N_pulsars x 2N_frequencies x 2N_frequencies]
         phi (numpy.ndarray): An array of the estimated spectrum [2N_frequencies]
@@ -288,6 +311,8 @@ def create_MCPFOS_pair_covariance(Z, phi, orfs, norm_abk, design_mat, rho_abk, s
         rho_abk (np.ndarray): The rho_k values for each pair of pulsars for each frequency [N_freq x N_pairs]
         sig_abk (np.ndarray): The sig_k values for each pair of pulsars for each frequency [N_freq x N_pairs]
         narrowband (bool): A flag to use the narrowband normalization instead of the broadband normalization.
+        select_freq (int): The frequency index to select for the pair covariance calculation.
+            Defaults to None.
         use_tqdm (bool): A flag to use the tqdm progress bar. Defaults to True.
         max_chunk (int): The maximum number of simultaneous matrix calculations. 
             Works best between 100-1000 but depends on the computer. Defaults to 300.
@@ -299,6 +324,26 @@ def create_MCPFOS_pair_covariance(Z, phi, orfs, norm_abk, design_mat, rho_abk, s
     nfreq = len(Z[0])//2
     # The frequency selector matrices (set of diagonals)
     phitilde = np.repeat(np.diag(np.ones(nfreq)),2,axis=1)
+
+    if select_freq is not None:
+        phitilde = phitilde[select_freq]
+        mcos,_ = linear_solve(design_mat, np.diag(sig_abk**2), rho_abk, None, 
+                              method='diagonal')
+        mcos = mcos[:,0]
+        mcos[mcos<0] = 0
+
+        norm_pow = mcos/np.sqrt(np.dot(mcos,mcos))
+        est_pow = phi[2*select_freq]*norm_pow
+
+        cor_pow = np.sum([o*a for o,a in zip(orfs,est_pow)], axis=0)
+
+        if narrowband:
+            Ck = create_OS_pair_covariance(Z, phitilde, phitilde, cor_pow, norm_abk, False, max_chunk)
+        else:
+            # Since the "amplitude" S(f_k) is already passed in through ORF, we need
+            # to remove the S(f_k) from phi
+            Ck = create_OS_pair_covariance(Z, phitilde, phi/phi[2*select_freq], cor_pow, norm_abk, False, max_chunk)
+        return Ck
 
     Ck = []
     iterable = tqdm(range(nfreq),desc='Freq covariances') if use_tqdm else range(nfreq)

@@ -678,13 +678,15 @@ class OptimalStatistic:
             sig = np.squeeze( self.nmos_iterations['sig'] )
             C = np.squeeze( self.nmos_iterations['C'] )
             
+            self.nmos_iterations = {}
             return xi, rho, sig, C, A2, A2s, param_index
-            
+        
+        self.nmos_iterations = {}
         return A2, A2s, param_index
 
 
     def compute_PFOS(self, params=None, N=1, pair_covariance=False, narrowband=False, 
-                     return_pair_vals=True, fisher_diag=False, use_tqdm=True):
+                     return_pair_vals=True, fisher_diag=False, select_freq=None, use_tqdm=True):
         """Compute the PFOS and its various modifications.
 
         This is one of 2 main functions of the OptimalStatistic class. This function
@@ -722,6 +724,11 @@ class OptimalStatistic:
         which can be useful if you are trying to measure many single component PFOS processes
         simultaneously. Keep this on True unless you know what you are doing.
 
+        If you want to select a specific frequency to compute the PFOS at, you can set
+        the 'select_freq' parameter to the index of the frequency you wish to compute the
+        PFOS at. This can be useful if you only care about a specific frequency. Setting
+        this to None will compute the PFOS at all frequencies.
+
         Args:
             params (dict, list, int, optional): The parameters to use in the PFOS. 
                 Users can supply any of the following for this argument:
@@ -739,6 +746,8 @@ class OptimalStatistic:
             return_pair_vals (bool): Whether to return the xi, rho, sig, C values. Defaults to True.
             fisher_diag (bool): Whether to zero the off-diagonal elements of the
                 fisher matrix. Defaults to False.
+            select_freq (int, optional): The index of the frequency to compute the PFOS at.
+                Defaults to None.
             use_tqdm (bool): Whether to use a progress bar. Defaults to True.
 
         Raises:
@@ -796,48 +805,58 @@ class OptimalStatistic:
 
             # Compute the pairwise correlations, uncertainties and normalizations
             # for each frequency
-            rho_abk, sig_abk, norm_abk = self._compute_rhok_sigk(X, Z, phi, narrowband)
-
-            # Compute the covariance matrices for each frequency
-            if use_tqdm and self.sub_tqdm:
-                iterable = tqdm(range(self.nfreq),desc='Frequencies',leave=False)
-            else:
-                iterable = range(self.nfreq)
-
+            rho_abk, sig_abk, norm_abk = self._compute_rhok_sigk(X, Z, phi, narrowband, 
+                                                                 select_freq)
+            
             if pair_covariance:
                 method = 'woodbury'
                 if self.norfs==1:
                     # Single ORF
                     Ck = pc.create_PFOS_pair_covariance(Z, phi, self._orf_matrix[0], 
-                            norm_abk, narrowband, use_tqdm and self.sub_tqdm, self._max_chunk)
+                            norm_abk, narrowband, select_freq,
+                            use_tqdm and self.sub_tqdm, self._max_chunk)
                 
                 elif self.norfs>1 and self._mcos_orf is not None:
                     # Assumed ORF with MCOS
                     Ck = pc.create_PFOS_pair_covariance(Z, phi, self._mcos_orf, 
-                            norm_abk, narrowband, use_tqdm and self.sub_tqdm, self._max_chunk)
+                            norm_abk, narrowband, select_freq, 
+                            use_tqdm and self.sub_tqdm, self._max_chunk)
                 
                 else:
                     # Default MCOS behavior
                     Ck = pc.create_MCPFOS_pair_covariance(Z, phi, self._orf_matrix, 
                             norm_abk, self.orf_design_matrix, rho_abk, sig_abk, 
-                            narrowband, use_tqdm and self.sub_tqdm, self._max_chunk)
+                            narrowband, select_freq,
+                            use_tqdm and self.sub_tqdm, self._max_chunk)
 
             else:
                 method = 'diagonal'
-                Ck = np.array([np.diag(sig_abk[k]**2) for k in range(self.nfreq)])
+                if select_freq is None:
+                    Ck = np.array([np.diag(sig_abk[k]**2) for k in range(self.nfreq)])
+                else:
+                    Ck = np.diag(sig_abk**2)
 
             # Done with pair covariance, now compute the PFOS
-            Sk = np.zeros( (self.nfreq,self.norfs) ) 
-            Sks = np.zeros( (self.nfreq,self.norfs,self.norfs) )
-            for k in range(self.nfreq):
+            if select_freq is not None:
+                s_diag = np.diag(sig_abk**2)
+                Sk, Sks = utils.linear_solve(self.orf_design_matrix, Ck, rho_abk,
+                                             s_diag, method, fisher_diag)
+                
+                Sk = np.squeeze(Sk) if self.norfs>1 else Sk.item()
+                Sks = np.squeeze(Sks) if self.norfs>1 else np.sqrt(Sks.item())
 
-                s_diag = np.diag(sig_abk[k]**2)
+            else:
+
+
+                Sk = np.zeros( (self.nfreq,self.norfs) ) 
+                Sks = np.zeros( (self.nfreq,self.norfs,self.norfs) )
+                for k in range(self.nfreq):
+                    s_diag = np.diag(sig_abk[k]**2)
+                    sk, sksig = utils.linear_solve(self.orf_design_matrix, Ck[k], rho_abk[k], 
+                                                   s_diag, method, fisher_diag)
                 
-                sk, sksig = utils.linear_solve(self.orf_design_matrix, Ck[k], rho_abk[k], 
-                                               s_diag, method, fisher_diag)
-                
-                Sk[k] = np.squeeze(sk) if self.norfs>1 else sk.item()
-                Sks[k] = np.squeeze(sksig) if self.norfs>1 else np.sqrt(sksig.item()) 
+                    Sk[k] = np.squeeze(sk) if self.norfs>1 else sk.item()
+                    Sks[k] = np.squeeze(sksig) if self.norfs>1 else np.sqrt(sksig.item()) 
             
             self.nmos_iterations['Sk'].append(np.squeeze(Sk))
             self.nmos_iterations['Sks'].append(np.squeeze(Sks))
@@ -857,8 +876,11 @@ class OptimalStatistic:
             rhok = np.squeeze( self.nmos_iterations['rhok'] )
             sigk = np.squeeze( self.nmos_iterations['sigk'] )
             Ck = np.squeeze( self.nmos_iterations['Ck'] )
+
+            self.nmos_iterations = {}
             return xi,rhok, sigk, Ck, Sk, Sks, param_index
-    
+
+        self.nmos_iterations = {}
         return Sk, Sks, param_index
     
 
@@ -1107,7 +1129,7 @@ class OptimalStatistic:
         return rho_ab, sig_ab
 
 
-    def _compute_rhok_sigk(self, X, Z, phi, narrowband):
+    def _compute_rhok_sigk(self, X, Z, phi, narrowband, select_freq=None):
         """Compute the rho_ab(f_k), sigma_ab(f_k), and normalization_ab(f_k)
 
         For Internal Use of the OptimalStatistic. Users are not recommended to use this!
@@ -1117,6 +1139,14 @@ class OptimalStatistic:
         can be found in Gersbach et al. 2024. Note that the shape of the returned
         matrices are [n_freq x n_pair].
 
+        You can select to use the narrowband-normalization instead of the default
+        broadband-normalization by setting the 'narrowband' argument to True.
+
+        You can also select a specific frequency to compute the pair values at by
+        setting the 'select_freq' argument to the index of the frequency you wish
+        to compute the pair values at. This can be useful if you only care about
+        a specific frequency. Setting this to None will compute the pair values at
+        all frequencies.
 
         Args:
             X (numpy.ndarray): An array of X matrix products for each pulsar.
@@ -1124,6 +1154,8 @@ class OptimalStatistic:
             phi (numpy.ndarray): A vector of the diagonal \phi matrix.
             narrowband (bool): Whether to use the narrowband-normalization instead
                     of the default broadband-normalization.
+            select_freq (int, optional): The index of the frequency to compute the
+                    pair values at. Defaults to None.
 
         Returns:
             numpy.ndarray, numpy.ndarray, numpy.ndarray: rho_ab(f_k), sigma_ab(f_k), 
@@ -1132,6 +1164,26 @@ class OptimalStatistic:
 
         # Compute rho_ab(f_k) for all f_k
         a,b = self._pair_idx[:,0], self._pair_idx[:,1]
+
+        if select_freq is not None:
+            phi_til = np.zeros(self.nfreq)  
+            phi_til[select_freq] = 1
+            phi_til = np.repeat(phi_til,2)
+            phi2 = phi/phi[2*select_freq]
+
+            if narrowband:
+                norms_abk = 1/(np.einsum('ijk,ikj->i',phi_til*Z[a],phi_til*Z[b]))
+            else:
+                norms_abk = 1/(np.einsum('ijk,ikj->i',phi_til*Z[a],phi2*Z[b]))
+
+            rho_abk =  np.sum(X[a] * phi_til * X[b], axis=1) * norms_abk
+            sig_abk =  np.sqrt(np.einsum('ijk,ikj->i', phi_til*Z[a], phi_til*Z[b]) * norms_abk**2)
+
+            if np.isnan(sig_abk).any():
+                print(os_ex.NaNPairwiseError.extended_response())
+                raise os_ex.NaNPairwiseError('NaN values pair-wise uncertainties! Are params valid?')
+
+            return rho_abk, sig_abk, norms_abk
 
         rho_abk = np.zeros( (self.nfreq,self.npairs) )
         sig_abk = np.zeros( (self.nfreq,self.npairs) )
