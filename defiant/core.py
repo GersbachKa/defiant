@@ -122,10 +122,9 @@ class OptimalStatistic:
             _ = psrs[0] 
         except TypeError: 
             raise TypeError("psrs list supplied is not able to be indexed")
-        if isinstance(psrs[0],BasePulsar):
-            self.psrs = psrs
-        else:
-            raise TypeError("pulsars in psrs list is not of type 'enterprise.pulsar.BasePulsar'!")
+        
+        # Duck typing pulsars
+        self.psrs = psrs
         
         self.npsr = len(psrs)
         psr_names = self.pta.pulsars
