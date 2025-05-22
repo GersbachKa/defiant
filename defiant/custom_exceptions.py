@@ -95,5 +95,6 @@ class NaNPairwiseError(Exception):
     
         text += 'TLDR: check your intrinsic red noise amplitude, spectral index. If these are outside '
         text += 'of the prior of the PTA model, then Z will be non-positive definite and will result '
-        text += 'in NaN values in the pair-wise uncertainties. '
+        text += 'in NaN values in the pair-wise uncertainties. If you are using particularly noisy pulsars, '
+        text += 'you may want to try using clip_z in the constructor.'
         return textwrap.fill(text,width=80)

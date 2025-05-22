@@ -901,18 +901,13 @@ class OptimalStatistic:
         all_TNT = []
         all_TNr = []
 
-        # Getting the F matrices are enterprise version dependent. Move to a function
-        all_F = _get_F_matrices(self.pta, self.gwb_name)
-
         for idx,psr_signal in enumerate(self.pta._signalcollections):
             r = psr_signal._residuals
             N = psr_signal.get_ndiag()
             T = psr_signal.get_basis()
-            F = all_F[idx]
-            
+            F = _get_F_matrices(self.pta, self.gwb_name, idx)
             # Getting the F matrix is a bit weird and very enterprise version dependent
             
-
             if self._marginalizing_timing_model:
                 # Need to use own solving method for N
                 FNr = _solveD(N,r,F) # F^T @ N^{-1} @ r
@@ -973,13 +968,9 @@ class OptimalStatistic:
             TNr = self._cache['TNr'][a]
 
             sigma = phiinv + TNT
-            try:
-                cf = sl.cho_factor(sigma)
-                X[a] = FNr - FNT @ sl.cho_solve(cf, TNr)
-                Z[a] = FNF - FNT @ sl.cho_solve(cf, FNT.T)
-            except np.linalg.LinAlgError:
-                X[a] = FNr - FNT @ np.linalg.solve(sigma, TNr)
-                Z[a] = FNF - FNT @ np.linalg.solve(sigma, FNT.T)
+            # Previously did cholesky, but forward modeling is faster and more stable
+            X[a] = FNr - FNT @ np.linalg.solve(sigma, TNr)
+            Z[a] = FNF - FNT @ np.linalg.solve(sigma, FNT.T)
 
         if self.clip_z is not None:
             for i in range(len(Z)):
@@ -1102,7 +1093,7 @@ class OptimalStatistic:
         Args:
             X (numpy.ndarray): An array of X matrix products for each pulsar.
             Z (numpy.ndarray): An array of Z matrix products for each pulsar.
-            phihat (numpy.ndarray): A vector of the diagonal \hat{\phi} matrix.
+            phihat (numpy.ndarray): A vector of the diagonal unit-amplitude phi matrix.
 
         Returns:
             numpy.ndarray, numpy.ndarray: The rho_ab and sigma_ab pairwise correlations
@@ -1150,7 +1141,7 @@ class OptimalStatistic:
         Args:
             X (numpy.ndarray): An array of X matrix products for each pulsar.
             Z (numpy.ndarray): An array of Z matrix products for each pulsar.
-            phi (numpy.ndarray): A vector of the diagonal \phi matrix.
+            phi (numpy.ndarray): A vector of the diagonal phi matrix.
             narrowband (bool): Whether to use the narrowband-normalization instead
                     of the default broadband-normalization.
             select_freq (int, optional): The index of the frequency to compute the
@@ -1210,31 +1201,53 @@ class OptimalStatistic:
         return rho_abk, sig_abk, norms_abk
 
 
-def _get_F_matrices(pta, gwb_name):
+def _get_F_matrices(pta, gwb_name, idx=None):
     """A function to get the F matrices for all pulsars
 
     Since getting the F matrices can be enterprise version dependent, this
     helper function is used as a quick way to get these matrices and handle 
     that version dependency.
 
+    If idx is None, then this function will return the F matrices for all pulsars.
+    
+    Args:
+        pta (enterprise.signals.signal_base.PTA): A PTA object.
+        gwb_name (str): The name of the GWB signal in each pulsar.
+        idx (int, optional): The index of the pulsar to get the F matrix for. 
+            Defaults to None.
+    
     Returns:
-        list: A list of F matrices for each pulsar
+        list: A list of F matrices for each pulsar or a single F matrix
+            if idx is not None.
     """
     F = []
     try:
         # Some versions of enterprise let you script the pulsar signal
-        F = [psrsig[gwb_name].get_basis() for psrsig in pta._signalcollections]
+        if idx is None:
+            F = [psrsig[gwb_name].get_basis() for psrsig in pta._signalcollections]
+        else:
+            F = pta._signalcollections[idx][gwb_name].get_basis()
 
     except:
         # And some don't
-        for psrsig in pta._signalcollections:
+        if idx is None:
+            for psrsig in pta._signalcollections:
+                for sig in psrsig.signals:
+                    if sig.signal_id == gwb_name:
+                        F.append(sig.get_basis())
+                        break
+            
+            if len(F)!=len(pta._signalcollections):
+                raise ValueError('No GWB signal found in PTA._signalcollections[:].signals!')
+        else:
+            psrsig = pta._signalcollections[idx]
             for sig in psrsig.signals:
                 if sig.signal_id == gwb_name:
-                    F.append(sig.get_basis())
+                    F = sig.get_basis()
                     break
+            if F is None:
+                raise ValueError('No GWB signal found in PTA._signalcollections[:].signals!')
             
-        if len(F)!=len(pta._signalcollections):
-            raise ValueError('No GWB signal found in PTA._signalcollections[:].signals!')
     return F
 
 

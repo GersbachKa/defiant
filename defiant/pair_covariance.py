@@ -226,7 +226,7 @@ def create_PFOS_pair_covariance(Z, phi, orf, norm_abk, narrowband, select_freq=N
 
     This function creates the GWB correlated pair covariance matrix for the PFOS
     for each frequency bin. This function takes advantage of the create_OS_pair_covariance
-    function where phihat is replaced with \tilde{\phi}(f_k) for each frequency.
+    function where phihat is replaced with tilde{phi}(f_k) for each frequency.
 
     You can also create covariance matrices for specific frequencies by setting the select_freq
     parameter to the desired frequency index or None for all frequencies.
@@ -265,7 +265,7 @@ def create_PFOS_pair_covariance(Z, phi, orf, norm_abk, narrowband, select_freq=N
     iterable = tqdm(range(nfreq),desc='Freq covariances') if use_tqdm else range(nfreq)
     for k in iterable:
         if narrowband:
-            # Need to include the S(f_k) in the second \tilde{\phi}(f_k) to get the correct units
+            # Need to include the S(f_k) in the second tilde{phi}(f_k) to get the correct units
             sk = phi[2*k]
             C = create_OS_pair_covariance(Z, phitilde[k], sk*phitilde[k], 
                                           orf, norm_abk[k], False, max_chunk)
@@ -283,7 +283,7 @@ def create_MCPFOS_pair_covariance(Z, phi, orfs, norm_abk, design_mat, rho_abk, s
 
     This function creates the GWB correlated pair covariance matrix for the MCOS
     for each frequency bin. This function takes advantage of the create_OS_pair_covariance
-    function where phihat is replaced with \tilde{\phi}(f_k) for each frequency.
+    function where phihat is replaced with tilde{phi}(f_k) for each frequency.
     This function also utilizes the same strategies found in create_MCOS_pair_covariance
     to estimate the correlated power per process.
 
@@ -297,7 +297,7 @@ def create_MCPFOS_pair_covariance(Z, phi, orfs, norm_abk, design_mat, rho_abk, s
     - Multiply the fractional correlated power per frequency by the CURN PSD to get 
         the total correlated power per frequency
     - Use the total correlated power per frequency to calculate the pair covariance 
-        matrix with phi => \tilde{\phi}(f_k)
+        matrix with phi => tilde{phi}(f_k)
 
     The function can also calculate the pair covariance matrix for a specific frequency
     by setting the select_freq parameter to the desired frequency index or None for all frequencies.
