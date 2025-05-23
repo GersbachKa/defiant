@@ -114,6 +114,8 @@ class OptimalStatistic:
             TypeError: If the pulsars in the psrs list are not a list or of type 
                 'enterprise.pulsar.BasePulsar'.
         """
+        self.sub_tqdm = sub_tqdm # Additional progress bars if needed
+
         if type(pta) == ent_sig.signal_base.PTA:
             self.pta = pta
         else:
@@ -122,14 +124,24 @@ class OptimalStatistic:
             _ = psrs[0] 
         except TypeError: 
             raise TypeError("psrs list supplied is not able to be indexed")
+        # Check for marginalizing timing model
+        self._marginalizing_timing_model = False
+        for s in self.pta._signalcollections[0].signals:
+            if 'marginalizing linear timing model' in s.signal_name:
+                self._marginalizing_timing_model = True
         
+        self.gwb_name = gwb_name
+
+        # Pre-cache matrix quantities
+        self._cache = {}
+        self._compute_cached_matrices()
+
+
         # Duck typing pulsars
         self.psrs = psrs
-        
         self.npsr = len(psrs)
         psr_names = self.pta.pulsars
-
-        self.gwb_name = gwb_name
+        
         
         self.lfcore, self.max_like_params, self.max_like_idx = None, None, None
         self.set_chain_params(core, core_path, chain_path, chain, param_names)
@@ -141,35 +153,20 @@ class OptimalStatistic:
         self.pair_names = [(psr_names[a],psr_names[b]) for a,b in self._pair_idx]
         self.npairs = len(self.pair_names)
 
-        self.norfs = 0
-        self.orf_functions = []
-        self.orf_design_matrix = None
-        self._orf_matrix = None
-        self._mcos_orf = None
+        self.norfs, self.orf_functions = 0, []
+        self.orf_design_matrix, self._orf_matrix, self._mcos_orf = None, None, None
         self.orf_names = None
-        self.nside = 0
-        self.lmax = 0
         self.set_orf(orfs, orf_names, pcmc_orf)
+        self.nside, self.lmax = None, None 
 
-        self.nmos_iterations = {}
-
+        self.nmos_iterations = {} # Used to store the NMOS iterations
         self._max_chunk = 300 # Users can set after creation if they want to change it
-        
-        # Check for marginalizing timing model
-        self._marginalizing_timing_model = False
-        for s in self.pta._signalcollections[0].signals:
-            if 'marginalizing linear timing model' in s.signal_name:
-                self._marginalizing_timing_model = True
-        
-        # Pre-cache matrix quantities
-        self._cache = {}
-        self._compute_cached_matrices()
+
+        # Experimental stuff ---------------------------------------------------
 
         self.clip_z = clip_z
         if clip_z is not None:
             warn("Clipping Z matrix products is an experimental feature. Use with caution.")
-        
-        self.sub_tqdm = sub_tqdm
         
 
     def set_chain_params(self, core=None, core_path=None, chain_path=None, 
@@ -889,7 +886,12 @@ class OptimalStatistic:
         This function will calculate the following matrix product, which are constant
         for any parameter values given to the PTA.
         The stored matrix products are:
-            - FNr, FNF, FNT, TNT, TNr
+            - FNr [2N_gwb x 1]
+            - FNF [2N_gwb x 2N_gwb] 
+            - FNT [2N_gwb x 2N_model]
+            - TNT [2N_model x 2N_model]
+            - TNr [2N_model x 1]
+
 
         Note: If the PTA is using the marginalizing timing model T will be replaced
         with F_irn, where F is the fourier design matrix of GWB only, and F_irn is
@@ -901,7 +903,13 @@ class OptimalStatistic:
         all_TNT = []
         all_TNr = []
 
-        for idx,psr_signal in enumerate(self.pta._signalcollections):
+        if self.sub_tqdm:
+            iterator = tqdm(range(len(self.pta._signalcollections)), desc='Precompute matrices')
+        else:
+            iterator = range(len(self.pta._signalcollections))
+            
+        for idx in iterator:
+            psr_signal = self.pta._signalcollections[idx]
             r = psr_signal._residuals
             N = psr_signal.get_ndiag()
             T = psr_signal.get_basis()
