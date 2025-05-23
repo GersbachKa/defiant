@@ -15,12 +15,10 @@ If you plan to use this software, please consider citing (and reading) the paper
 
 ## Installation
 
-TODO: Make this package *conda* installable...
-
 For now, there are two options for installation,
 
-### Option 1: pip
-The first option is to use ``pip+git``. For this method you **MUST** install ``ENTERPRISE`` through conda first. We recommend installing it with ``enterprise_extensions`` for its additional utility. Follow these steps. This has been verified to work in python versions: 3.9, 3.10, 3.11, 3.12. 
+### Option 1: pip+git
+The first option is to use ``pip+git``. For this method you **MUST** install ``ENTERPRISE`` through conda (or pip) first. We recommend installing it with ``enterprise_extensions`` for its additional utility. Follow these steps. Keep in mind that ``ENTERPRISE`` is NOT listed as a requirement, but is required for Defiant to work properly! This has been verified to work in python versions: 3.9, 3.10, 3.11, 3.12. 
 
 ```bash
 conda install -c conda-forge enterprise_extensions
