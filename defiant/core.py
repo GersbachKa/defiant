@@ -129,6 +129,9 @@ class OptimalStatistic:
         for s in self.pta._signalcollections[0].signals:
             if 'marginalizing linear timing model' in s.signal_name:
                 self._marginalizing_timing_model = True
+
+        # Check if this PTA has deterministic signals
+        self.deterministic_signals = _check_deterministic(self.pta)
         
         self.gwb_name = gwb_name
 
@@ -892,6 +895,8 @@ class OptimalStatistic:
             - TNT [2N_model x 2N_model]
             - TNr [2N_model x 1]
 
+        The matrix products containing r, use the raw residuals of the pulsar, that
+        is, the residuals WITHOUT subtracting any deterministic signals.
 
         Note: If the PTA is using the marginalizing timing model T will be replaced
         with F_irn, where F is the fourier design matrix of GWB only, and F_irn is
@@ -910,7 +915,7 @@ class OptimalStatistic:
             
         for idx in iterator:
             psr_signal = self.pta._signalcollections[idx]
-            r = psr_signal._residuals
+            r = psr_signal._residuals # Raw residuals, no deterministic signals
             N = psr_signal.get_ndiag()
             T = psr_signal.get_basis()
             F = _get_F_matrices(self.pta, self.gwb_name, idx)
@@ -942,6 +947,37 @@ class OptimalStatistic:
         self._cache['TNT'] = all_TNT
         self._cache['TNr'] = all_TNr
 
+    def _compute_delay_FNr_TNr(self, params, idx):
+        
+        # If the real resiudals are dt = r - r', then FN(dt) = FNr - FNr' 
+        # and TN(dt) = TNr - TNr', where r' is the set of delays on the residuals. 
+        # Check if this pulsar has a deterministic signal, if so, compute the delay
+        if self.deterministic_signals[idx]:
+            # Yes deterministic signal, compute the delay FNr
+            psr_signal = self.pta._signalcollections[idx]
+
+            r_prime = psr_signal.get_delay(params)
+            N = psr_signal.get_ndiag()
+            T = psr_signal.get_basis()
+            F = _get_F_matrices(self.pta, self.gwb_name, idx)
+
+            if self._marginalizing_timing_model:
+                # Need to use own solving method for N
+                FNr_prime = _solveD(N, r_prime, F)
+                TNr_prime = _solveD(N, r_prime, T)
+            else:
+                FNr_prime = N.solve(r_prime, F)
+                TNr_prime = N.solve(r_prime, T)
+
+            FNdt = self._cache['FNr'][idx] - FNr_prime # F^T @ N^{-1} @ (r - r')
+            TNdt = self._cache['TNr'][idx] - TNr_prime # T^T @ N^{-1} @ (r - r')
+            return FNdt, TNdt
+        else:
+            # No deterministic signal, just use the cached values
+            FNdt = self._cache['FNr'][idx] 
+            TNdt = self._cache['TNr'][idx]
+            return FNdt, TNdt
+    
 
     def _compute_XZ(self, params):
         """A function to quickly calculate the OS' matrix quantities
@@ -969,11 +1005,13 @@ class OptimalStatistic:
             if phiinv.ndim == 1:
                 phiinv = np.diag(phiinv)
 
-            FNr = self._cache['FNr'][a]
+            # FNr and TNr can be modulated by deterministic signals
+            FNr, TNr = self._compute_delay_FNr_TNr(params, a)
+
             FNF = self._cache['FNF'][a]
             FNT = self._cache['FNT'][a]
             TNT = self._cache['TNT'][a]
-            TNr = self._cache['TNr'][a]
+            
 
             sigma = phiinv + TNT
             # Previously did cholesky, but forward modeling is faster and more stable
@@ -1257,6 +1295,31 @@ def _get_F_matrices(pta, gwb_name, idx=None):
                 raise ValueError('No GWB signal found in PTA._signalcollections[:].signals!')
             
     return F
+
+def _check_deterministic(pta):
+    """A function to check if there are deterministic signals in the PTA object.
+
+    This function checks if there are any deterministic signals in the PTA object
+    by sampling the parameter space and checking if the delays are non-zero.
+    This function uses the pta.get_delay() method to check for these deterministic 
+    signals.
+
+    Args:
+        pta (enterprise.signals.signal_base.PTA): A PTA object.
+    
+    Returns:
+        list: A list of booleans indicating if there are deterministic signals
+    """
+    # To check if there is a non-zero delay, we can use the get_delay method
+    # and use a random sample of the parameter space. These can be per-pulsar.
+    # such as J1713 DM dips
+    rand = {p.name:p.sample() for p in pta.params}
+
+    # get_delay() will return a 0 integer if there is no deterministic signals
+    # and an array of non-zeros if there is a deterministic signal.
+    delays = [np.sum(psr.get_delay(rand))!=0 for psr in pta._signalcollections]
+
+    return delays
 
 
 def _solveD(N_obj, right, left):

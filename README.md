@@ -46,6 +46,7 @@ sys.path.append('<path-to-defiant>/')
 from defiant import OptimalStatistic
 ```
 
+
 ## Example notebooks
 
 Speed, reproducability, and most important, documentation, are all primary concerns with the development of DEFIANT. Frustrated by the inadequate documentation from many packages in PTA science, DEFIANT attempts to be different by being overly documented and detailed in every component. As such, a ton of time and care have been put into developing examples for others to copy. The main resource (for now at least) for learning to use DEFIANT is in the notebooks section:
@@ -59,7 +60,7 @@ Additionally, EVERY function and method have been rigorously commented such that
 
 ## Usage
 
-There are many ways in which you can use DEFIANT. Obviously, DEFIANT is specially built for the Optimal Statistic. This can be found in [defiant.OptimalStatistic](https://github.com/GersbachKa/defiant/blob/main/defiant/core.py) (or equivalently [defiant.core.OptimalStatistic](https://github.com/GersbachKa/defiant/blob/main/defiant/core.py)).
+There are many ways in which you can use DEFIANT. Obviously, DEFIANT is specially built for the Optimal Statistic. This can be found in [defiant.OptimalStatistic](https://github.com/GersbachKa/defiant/blob/main/defiant/core.py) (or equivalently [defiant.core.OptimalStatistic](https://github.com/GersbachKa/defiant/blob/main/defiant/core.py)). 
 
 To use the OptimalStatistic, you must instance the object. There are 3 required parameters: 
 1. '[psrs](https://github.com/GersbachKa/defiant/blob/main/defiant/core.py#L45)' -> The list of [enterprise.Pulsar]() objects
@@ -67,6 +68,8 @@ To use the OptimalStatistic, you must instance the object. There are 3 required 
 3. '[gwb_name](https://github.com/GersbachKa/defiant/blob/main/defiant/core.py#L45)' -> A string corresponding to the name of the GWB parameters in the PTA.param_names*
 
 *note that defiant assumes that you create PTAs in such a way that the parameters corresponding to the GWB are have names like `gwb_name + "_log10_A"` and `gwb_name + "_log10_A"`. By default '[gwb_name](https://github.com/GersbachKa/defiant/blob/main/defiant/core.py#L45)' is set to `"gw"`.
+
+**Defiant relies on fixed white noise matrices (N) and fixed red noise model matrices (T and F). If your parameters change these in any way, Defiant will return bad results.**
 
 ```python
 # After defining psrs and pta
