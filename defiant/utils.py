@@ -170,8 +170,8 @@ def get_pta_frequencies(pta, gwb_name='gw'):
     try:
         gwb_sig = [s for s in pta._signalcollections[0].signals if s.signal_id==gwb_name][0]
         gwb_sig.get_basis()
- 
-        if type(gwb_sig._labels) == dict:
+
+        if isinstance(gwb_sig._labels, dict):
             freqs = gwb_sig._labels['']
         else: 
             freqs = gwb_sig._labels

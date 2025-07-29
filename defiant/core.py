@@ -116,7 +116,7 @@ class OptimalStatistic:
         """
         self.sub_tqdm = sub_tqdm # Additional progress bars if needed
 
-        if type(pta) == ent_sig.signal_base.PTA:
+        if isinstance(pta, ent_sig.signal_base.PTA):
             self.pta = pta
         else:
             raise TypeError("pta supplied is not of type 'enterprise.signals.signal_base.PTA'!")
@@ -199,7 +199,7 @@ class OptimalStatistic:
         """
         # Prefered order for loading chains: 
         # core > corepath > chain_path > chain + param_names > chain
-        if core is not None and type(core) == Core:
+        if core is not None and isinstance(core, Core):
             self.lfcore = core
         elif core_path is not None:
             self.lfcore = Core(corepath=core_path)
@@ -285,7 +285,7 @@ class OptimalStatistic:
             # If indexes are not supplied, then choose them randomly without burn-in
             idx = np.random.randint(self.lfcore.burn, self.lfcore.chain.shape[0], N)
         else:
-            if type(idx) == int:
+            if isinstance(idx, (int, np.integer)):
                 idx = [idx]
             idx = np.array(idx)
 
@@ -375,12 +375,12 @@ class OptimalStatistic:
         """
         if not hasattr(orfs, '__iter__'):
             orfs = [orfs]
-        elif type(orfs) == str:
+        elif isinstance(orfs, str):
             orfs = [orfs]
         
         if orf_names is None:
             orf_names = [None for a in orfs]
-        elif type(orfs) == str:
+        elif isinstance(orf_names, str):
             orf_names = [orf_names]
 
         # Check for same length!
@@ -401,7 +401,7 @@ class OptimalStatistic:
             orf = orfs[i]
             name = orf_names[i]
 
-            if type(orf) == str:
+            if isinstance(orf, str):
                 # ORF must be pre-defined function
                 cur_orf = orf_funcs.get_orf_function(orf)
                 name = orf if name is None else name
@@ -438,7 +438,7 @@ class OptimalStatistic:
 
         # Additional bits for PC+MC
         if pcmc_orf is not None:
-            if type(pcmc_orf) == str:
+            if isinstance(pcmc_orf, str):
                 # Pre-defined ORF
                 orf = orf_funcs.get_orf_function(pcmc_orf)
             else:
@@ -1071,19 +1071,19 @@ class OptimalStatistic:
         # Get the parameters in the format of a list of dictionaries------------
         if params is not None:
             # Reformat so that we always have a list of dictionaries
-            if type(params) is dict:
+            if isinstance(params, dict):
                 # A single dictionary of parameters
                 idx = [-1]
                 pars = [utils.freespec_param_fix(params, self.gwb_name)]
-            elif hasattr(params, '__iter__') and type(params[0]) is dict:
+            elif hasattr(params, '__iter__') and isinstance(params[0], dict):
                 # An iterable of dictionaries
                 idx = [-1]*len(params)
                 pars = [utils.freespec_param_fix(p, self.gwb_name) for p in params]
-            elif hasattr(params, '__iter__') and type(params[0]) is int:
+            elif hasattr(params, '__iter__') and isinstance(params[0], (int, np.integer)):
                 # An iterable of indexes
                 idx = params
                 pars = self.get_chain_params(idx=params, format='dict', freespec_fix=True)
-            elif type(params) is int:
+            elif isinstance(params, (int, np.integer)):
                 # A single index
                 idx = [params]
                 pars = [self.get_chain_params(idx=params, format='dict', freespec_fix=True)]
@@ -1107,7 +1107,7 @@ class OptimalStatistic:
             # Set gamma, check if list or single value
             if hasattr(gamma, '__iter__'):
                 gam = gamma
-            elif type(gamma) is float:
+            elif isinstance(gamma, (float, np.floating)):
                 gam = [gamma]*len(pars)
             else:
                 msg = "gamma must be a float or a list of floats."
