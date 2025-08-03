@@ -29,7 +29,7 @@ def get_MDC1_psrs(use_pickle=False):
         import enterprise
         from enterprise.pulsar import Pulsar
         from glob import glob
-        from tqdm.auto import tqdm
+        from tqdm import tqdm
 
         datadir = enterprise.__path__[0] + '/datafiles/mdc_open1/'
         parfiles = sorted(glob(datadir + '/*.par'))
@@ -93,7 +93,7 @@ def create_MDC1_like_psrs(gwb_amplitude=5e-14, gwb_gamma=13./3.,
     from glob import glob
 
     from libstempo import toasim as LT
-    from tqdm.auto import tqdm
+    from tqdm import tqdm
 
     inj_params={}
     seed = int(np.random.random()*2**31-1) if seed==None else int(seed)
