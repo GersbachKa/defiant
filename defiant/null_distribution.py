@@ -1,7 +1,7 @@
 
 import numpy as np
 import scipy.linalg as sl
-from tqdm.auto import tqdm
+from tqdm import tqdm
 
 from . import utils
 
@@ -9,7 +9,7 @@ from . import utils
 ## Null distribution functions
 ##------------------------------------------------------------------------------
 
-def phase_shift_OS(OS_obj, params=None, gamma=None, n_shifts=1000, use_tqdm=True):
+def phase_shift_OS(os_obj, params=None, gamma=None, n_shifts=1000, use_tqdm=True):
     """A function to compute the p-value of the OS using phase shifts.
 
     This function compute the p-value, target SNR, and null distribution of the
@@ -53,24 +53,24 @@ def phase_shift_OS(OS_obj, params=None, gamma=None, n_shifts=1000, use_tqdm=True
     """
 
     # First, get parameter dictionary, and gamma
-    pars, idx, gam = OS_obj._parse_params(params, 1, gamma)
+    pars, idx, gam = os_obj._parse_params(params, 1, gamma)
     # Only one iteration is allowed, so lets unpack these
     pars, gam = pars[0], gam[0]
-    phihat = utils.powerlaw(OS_obj.freqs, 0, gam, 2)
+    phihat = utils.powerlaw(os_obj.freqs, 0, gam, 2)
 
     # Calculate the OS matrix products. Will need to shift X but not Z!
-    X,Z = OS_obj._compute_XZ(pars)
+    X,Z = os_obj.compute_XZ(pars)
 
     # Compute the OS on this as the signal hypothesis
-    rho_ab, sig_ab = OS_obj._compute_rho_sig(X, Z, phihat)
+    rho_ab, sig_ab = os_obj.compute_rho_sig(X, Z, phihat)
     C = np.diag(sig_ab**2)
 
-    A2,A2s = utils.linear_solve(OS_obj.orf_design_matrix, C, rho_ab, 
+    A2,A2s = utils.linear_solve(os_obj.orf_design_matrix, C, rho_ab, 
                                 None, method='diagonal')
     # SNR may be multi-component
     if np.array([A2]).size > 1:
         Cinv = np.diag(1/sig_ab**2) 
-        fisher = OS_obj.orf_design_matrix.T @ Cinv @ OS_obj.orf_design_matrix
+        fisher = os_obj.orf_design_matrix.T @ Cinv @ os_obj.orf_design_matrix
         target_snr = np.sqrt(A2.T @ fisher @ A2).item()
     else:
         target_snr = np.squeeze(A2/np.sqrt(A2s)).item()
@@ -83,16 +83,16 @@ def phase_shift_OS(OS_obj, params=None, gamma=None, n_shifts=1000, use_tqdm=True
         X_rot, Z_rot = randomly_rotate_OS_matrices(X, Z)
 
         # Compute the OS with this rotation
-        rho_rot, sig_rot = OS_obj._compute_rho_sig(X_rot, Z_rot, phihat)
+        rho_rot, sig_rot = os_obj.compute_rho_sig(X_rot, Z_rot, phihat)
         C_rot = np.diag(sig_rot**2)
 
-        A2_rot, A2s_rot = utils.linear_solve(OS_obj.orf_design_matrix, C_rot, 
-                                                 rho_rot, None, method='diagonal')
+        A2_rot, A2s_rot = utils.linear_solve(os_obj.orf_design_matrix, C_rot, 
+                                             rho_rot, None, method='diagonal')
         
         # SNR may be multi-component
         if np.array([A2]).size > 1:
             Cinv_rot = np.diag(1/sig_rot**2)
-            fisher_rot = OS_obj.orf_design_matrix.T @ Cinv_rot @ OS_obj.orf_design_matrix
+            fisher_rot = os_obj.orf_design_matrix.T @ Cinv_rot @ os_obj.orf_design_matrix
             null_snr[i] = np.sqrt(A2_rot.T @ fisher_rot @ A2_rot).item()
         else:
             null_snr[i] = np.squeeze(A2_rot/np.sqrt(A2s_rot)).item()
@@ -103,7 +103,7 @@ def phase_shift_OS(OS_obj, params=None, gamma=None, n_shifts=1000, use_tqdm=True
     return pval, target_snr, null_snr
 
 
-def sky_scramble_OS(OS_obj, params=None, gamma=None, n_scrambles=1000, swap_pos=False, 
+def sky_scramble_OS(os_obj, params=None, gamma=None, n_scrambles=1000, swap_pos=False, 
                     use_tqdm=True):
     """A function to compute the p-value of the OS using sky scrambles.
 
@@ -159,24 +159,24 @@ def sky_scramble_OS(OS_obj, params=None, gamma=None, n_scrambles=1000, swap_pos=
     """
     
     # First, get parameter dictionary, and gamma
-    pars, idx, gam = OS_obj._parse_params(params, 1, gamma)
+    pars, idx, gam = os_obj._parse_params(params, 1, gamma)
     # Only one iteration is allowed, so lets unpack these
     pars, gam = pars[0], gam[0]
-    phihat = utils.powerlaw(OS_obj.freqs, 0, gam, 2)
+    phihat = utils.powerlaw(os_obj.freqs, 0, gam, 2)
 
     # Calculate the OS matrix products. Will need to shift X but not Z!
-    X,Z = OS_obj._compute_XZ(pars)
+    X,Z = os_obj.compute_XZ(pars)
 
     # Compute the OS on this as the signal hypothesis
-    rho_ab, sig_ab = OS_obj._compute_rho_sig(X, Z, phihat)
+    rho_ab, sig_ab = os_obj.compute_rho_sig(X, Z, phihat)
     C = np.diag(sig_ab**2)
 
-    A2,A2s = utils.linear_solve(OS_obj.orf_design_matrix, C, rho_ab, 
+    A2,A2s = utils.linear_solve(os_obj.orf_design_matrix, C, rho_ab, 
                                 None, method='diagonal')
     # SNR may be multi-component
     if np.array([A2]).size > 1:
         Cinv = np.diag(1/sig_ab**2) 
-        fisher = OS_obj.orf_design_matrix.T @ Cinv @ OS_obj.orf_design_matrix
+        fisher = os_obj.orf_design_matrix.T @ Cinv @ os_obj.orf_design_matrix
         target_snr = np.sqrt(A2.T @ fisher @ A2).item()
     else:
         target_snr = np.squeeze(A2/np.sqrt(A2s)).item()
@@ -188,9 +188,9 @@ def sky_scramble_OS(OS_obj, params=None, gamma=None, n_scrambles=1000, swap_pos=
         # With scrambles, we can re-use the data and covariance, we just switch the
         # design matrix
         if swap_pos:
-            f_xi, new_design = randomly_swap_pulsar_positions(OS_obj)
+            f_xi, new_design = randomly_swap_pulsar_positions(os_obj)
         else:
-            f_xi, new_design = randomly_create_pulsar_positions(OS_obj)
+            f_xi, new_design = randomly_create_pulsar_positions(os_obj)
 
         A2_scram, A2s_scram = utils.linear_solve(new_design, C, rho_ab, None, 
                                                  method='diagonal')
@@ -208,7 +208,7 @@ def sky_scramble_OS(OS_obj, params=None, gamma=None, n_scrambles=1000, swap_pos=
     return pval, target_snr, null_snr
 
 
-def super_scramble_OS(OS_obj, params=None, gamma=None, n_scrambles=1000, swap_pos=False, 
+def super_scramble_OS(os_obj, params=None, gamma=None, n_scrambles=1000, swap_pos=False, 
                     use_tqdm=True):
     """A function to compute the p-value of the OS using both phase shifts and sky scrambles.
 
@@ -258,24 +258,24 @@ def super_scramble_OS(OS_obj, params=None, gamma=None, n_scrambles=1000, swap_po
     """
     
     # First, get parameter dictionary, and gamma
-    pars, idx, gam = OS_obj._parse_params(params, 1, gamma)
+    pars, idx, gam = os_obj._parse_params(params, 1, gamma)
     # Only one iteration is allowed, so lets unpack these
     pars, gam = pars[0], gam[0]
-    phihat = utils.powerlaw(OS_obj.freqs, 0, gam, 2)
+    phihat = utils.powerlaw(os_obj.freqs, 0, gam, 2)
 
     # Calculate the OS matrix products. Will need to shift X but not Z!
-    X,Z = OS_obj._compute_XZ(pars)
+    X,Z = os_obj.compute_XZ(pars)
 
     # Compute the OS on this as the signal hypothesis
-    rho_ab, sig_ab = OS_obj._compute_rho_sig(X, Z, phihat)
+    rho_ab, sig_ab = os_obj.compute_rho_sig(X, Z, phihat)
     C = np.diag(sig_ab**2)
 
-    A2,A2s = utils.linear_solve(OS_obj.orf_design_matrix, C, rho_ab, 
+    A2,A2s = utils.linear_solve(os_obj.orf_design_matrix, C, rho_ab, 
                                 None, method='diagonal')
     # SNR may be multi-component
     if np.array([A2]).size > 1:
         Cinv = np.diag(1/sig_ab**2) 
-        fisher = OS_obj.orf_design_matrix.T @ Cinv @ OS_obj.orf_design_matrix
+        fisher = os_obj.orf_design_matrix.T @ Cinv @ os_obj.orf_design_matrix
         target_snr = np.sqrt(A2.T @ fisher @ A2).item()
     else:
         target_snr = np.squeeze(A2/np.sqrt(A2s)).item()
@@ -286,15 +286,15 @@ def super_scramble_OS(OS_obj, params=None, gamma=None, n_scrambles=1000, swap_po
     for i in iterable:
         # Create a new design matrix
         if swap_pos:
-            f_xi, new_design = randomly_swap_pulsar_positions(OS_obj)
+            f_xi, new_design = randomly_swap_pulsar_positions(os_obj)
         else:
-            f_xi, new_design = randomly_create_pulsar_positions(OS_obj)
+            f_xi, new_design = randomly_create_pulsar_positions(os_obj)
 
         # Create phase shifted data
         X_rot, Z_rot = randomly_rotate_OS_matrices(X, Z)
 
         # Compute the OS with this rotation
-        rho_rot, sig_rot = OS_obj._compute_rho_sig(X_rot, Z_rot, phihat)
+        rho_rot, sig_rot = os_obj.compute_rho_sig(X_rot, Z_rot, phihat)
         C_rot = np.diag(sig_rot**2)
 
         A2_scram, A2s_scram = utils.linear_solve(new_design, C_rot, rho_rot, None, 
@@ -373,7 +373,7 @@ def randomly_rotate_OS_matrices(X, Z):
     return X_rot, Z_rot
 
 
-def randomly_create_pulsar_positions(OS_obj):
+def randomly_create_pulsar_positions(os_obj):
     """A function to randomly create a new design matrix using random pulsar positions
 
     This function first randomly generates new pulsar positions then computes the
@@ -408,27 +408,27 @@ def randomly_create_pulsar_positions(OS_obj):
                     self.pos = pos / np.sqrt(np.sum(pos**2))
     
     # Create a list of fake pulsars
-    f_psrs = [fake_psr() for i in range(len(OS_obj.psrs))]
+    f_psrs = [fake_psr() for i in range(len(os_obj.psrs))]
 
     # Get pulsar separations
-    f_xi, _ = utils.compute_pulsar_pair_separations(f_psrs, OS_obj._pair_idx)
+    f_xi, _ = utils.compute_pulsar_pair_separations(f_psrs, os_obj.pair_idx)
 
-    new_design_matrix = np.zeros_like(OS_obj.orf_design_matrix.T)
-    for i in range(OS_obj.norfs):
-        cur_orf = OS_obj.orf_functions[i]
+    new_design_matrix = np.zeros_like(os_obj.orf_design_matrix.T)
+    for i in range(os_obj.norfs):
+        cur_orf = os_obj.orf_functions[i]
         try:
             # First see if we can supply the pulsar separations directly
             new_design_matrix[i] = cur_orf(f_xi)
         except:
             # Otherwise we need to supply the pulsar objects
-            for j,(a,b) in enumerate(OS_obj._pair_idx):
+            for j,(a,b) in enumerate(os_obj.pair_idx):
                 v = cur_orf(f_psrs[a], f_psrs[b])
                 new_design_matrix[i,j] = v
     
     return f_xi, new_design_matrix.T
 
 
-def randomly_swap_pulsar_positions(OS_obj):
+def randomly_swap_pulsar_positions(os_obj):
     """A function to randomly make a new design matrix using SWAPPED pulsar positions
 
     This function first randomly swaps pulsar positions then computes the
@@ -456,26 +456,26 @@ def randomly_swap_pulsar_positions(OS_obj):
             self.pos = pos
 
     # Get a list of positions
-    pos_list = np.array([p.pos for p in OS_obj.psrs])
+    pos_list = np.array([p.pos for p in os_obj.psrs])
 
     # Randomly shuffle the positions
     np.random.shuffle(pos_list)
 
     # Create a list of fake pulsars
-    f_psrs = [swap_psr(pos_list[i]) for i in range(len(OS_obj.psrs))]
+    f_psrs = [swap_psr(pos_list[i]) for i in range(len(os_obj.psrs))]
 
     # Get pulsar separations
-    f_xi, _ = utils.compute_pulsar_pair_separations(f_psrs, OS_obj._pair_idx)
+    f_xi, _ = utils.compute_pulsar_pair_separations(f_psrs, os_obj.pair_idx)
 
-    new_design_matrix = np.zeros_like(OS_obj.orf_design_matrix.T)
-    for i in range(OS_obj.norfs):
-        cur_orf = OS_obj.orf_functions[i]
+    new_design_matrix = np.zeros_like(os_obj.orf_design_matrix.T)
+    for i in range(os_obj.norfs):
+        cur_orf = os_obj.orf_functions[i]
         try:
             # First see if we can supply the pulsar separations directly
             new_design_matrix[i] = cur_orf(f_xi)
         except:
             # Otherwise we need to supply the pulsar objects
-            for j,(a,b) in enumerate(OS_obj._pair_idx):
+            for j,(a,b) in enumerate(os_obj.pair_idx):
                 v = cur_orf(f_psrs[a], f_psrs[b])
                 new_design_matrix[i,j] = v
     

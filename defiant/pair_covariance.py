@@ -3,7 +3,7 @@ from .custom_exceptions import *
 from .utils import *
 
 import numpy as np
-from tqdm.auto import tqdm
+from tqdm import tqdm
 
 
 def create_OS_pair_covariance(Z, phihat, phi, orf, norm_ab, use_tqdm=True, max_chunk=300):
