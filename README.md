@@ -33,11 +33,20 @@ conda install -c conda-forge enterprise_extensions
 pip install git+https://github.com/GersbachKa/defiant
 ```
 
-#### Optional: If you are using VScode for your notebooks, you may see errors in the tqdm progress bars, you can fix this with [vscode-tqdm](https://pypi.org/project/vscode-tqdm/)
+#### Legacy Defiant Versions
+
+Since Defiant isn't on pypi yet, if you want to use a specific version of Defiant, you can install a specific branch using 
 
 ```bash
-pip install vscode-tqdm ipywidgets
+pip install git+https://github.com/GersbachKa/defiant@<branch>
 ```
+
+or if you want a version from a specific commit, use:
+
+```bash
+pip install git+https://github.com/GersbachKa/defiant@6f0a6f
+```
+
 
 Note: You may need to check which version of ``ENTERPRISE`` gets installed, as the tnequad definition change happened on version [v3.3.0](https://github.com/nanograv/enterprise/releases?page=1)
 
