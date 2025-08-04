@@ -54,7 +54,8 @@ class OptimalStatistic:
         sub_tqdm (bool): Whether to use progress bars on frequency and pair covariance calculations.
         max_matrix_chunk (int): The maximum number of simultaneous matrix products.
         _get_phi (function): A function to get the GWB phi from the PTA for given parameters.
-        _cache (dict): A dictionary of cached matrix products
+        _cache_params (dict): A dictionary of the white noise, basis, and delay parameters
+            that affect each pulsar.
         _cache_{'func_name'} (list): A list of cached results for each pulsar.
     """
 
@@ -1115,16 +1116,13 @@ class OptimalStatistic:
         of Pol, Taylor, Romano, 2022: (https://arxiv.org/abs/2206.09936). X and Z
         can be represented as X = F^T @ P^{-1} @ r and Z = F^T @ P^{-1} @ F.
 
-        This method will change how P^{-1} is calculated depending on if you are
-        using a linearized timing model (i.e. replace all T with F).
-        
         Args:
             params (dict): A dictionary containing the parameter name:value pairs for the PTA
 
         Returns:
-            (np.array, np.array): A tuple of X and Z. X is an array of vectors for each pulsar 
-                (N_pulsar x 2N_frequency). Z is an array of matrices for each pulsar 
-                (N_pulsar x 2N_frequency x 2N_frequency)
+            Tuple:
+                - X (numpy.ndarray): An array of vectors for each pulsar [Npsr x 2Nfreq(F)]
+                - Z (numpy.ndarray): An array of matrices for each pulsar [Npsr x 2Nfreq(F) x 2Nfreq(F)]
         """
         X = np.zeros( shape = ( self.npsr, 2*self.nfreq ) ) # An array of vectors
         Z = np.zeros( shape = ( self.npsr, 2*self.nfreq, 2*self.nfreq ) ) # An array of matrices
@@ -1147,22 +1145,104 @@ class OptimalStatistic:
     # Matrix elements-----------------------------------------------------------
     # Don't cache these, they can have large memory footprints!
     def _get_F_mat(self, idx, params):
+        """Get the F matrix for a given pulsar.
+
+        For Internal Use of the OptimalStatistic. Users are not recommended to use this!
+        This method retreives the fourier design matrix for **only the GWB model** for
+        a given pulsar index and set of parameters.
+
+        This matrix depends on any basis parameters set in the PTA, functions that
+        depend on this matrix should keep that in mind when caching results.
+
+        Args:
+            idx (int): The index of the pulsar in the self.psrs list
+            params (dict): A dictionary of parameter name:value pairs for the PTA
+
+        Returns:
+            numpy.ndarray: The F matrix for the given pulsar and parameters [Ntoa x 2Nfreq(F)]
+        """
         return self.psr_signals[idx][self.gwb_name].get_basis(params)
 
 
     def _get_T_mat(self, idx, params):
+        """Get the T matrix for a given pulsar.
+
+        For Internal Use of the OptimalStatistic. Users are not recommended to use this!
+        This method retreives the fourier design matrix for the entire red noise model
+        for a given pulsar index and set of parameters. This includes GWB, IRN and other
+        red noise models. and will often include more frequencies than the F matrix.
+
+        This matrix depends on any basis parameters set in the PTA, functions that
+        depend on this matrix should keep that in mind when caching results.
+
+        Args:
+            idx (int): The index of the pulsar in the self.psrs list
+            params (dict): A dictionary of parameter name:value pairs for the PTA
+
+        Returns:
+            numpy.ndarray: The T matrix for the given pulsar and parameters [Ntoa x 2Nfreq(T)]
+        """
         return self.psr_signals[idx].get_basis(params)
 
 
     def _get_N_obj(self, idx, params):
+        """Get the N object/matrix for a given pulsar.
+
+        For Internal Use of the OptimalStatistic. Users are not recommended to use this!
+        This method retreives the noise covariance object or matrix for a given pulsar 
+        index and set of parameters. Note that if using a marginalizing timing model,
+        this returns a marginalizing object, and not a matrix.
+        Check the _compute_xNy() method for more details on this.
+
+        This matrix depends on any white noise parameters set in the PTA, functions that
+        depend on this matrix should keep that in mind when caching results.
+
+        Args:
+            idx (int): The index of the pulsar in the self.psrs list
+            params (dict): A dictionary of parameter name:value pairs for the PTA
+
+        Returns:
+            np.ndarray or Object: The noise covariance object or matrix for the given pulsar.
+        """
         return self.psr_signals[idx].get_ndiag(params)
 
 
     def _get_dt(self, idx, params):
+        """Get the vector of delayed residuals for a given pulsar.
+
+        For Internal Use of the OptimalStatistic. Users are not recommended to use this!
+        This method retrieves the delayed timing residuals for a given pulsar index 
+        and set of parameters. 
+
+        This matrix depends on any delay or deterministic parameters set in the PTA,
+        functions that depend on this matrix should keep that in mind when caching results.
+
+        Args:
+            idx (int): The index of the pulsar in the self.psrs list
+            params (dict): A dictionary of parameter name:value pairs for the PTA
+
+        Returns:
+            np.ndarray: The vector of delayed residuals for the given pulsar and parameters. [Ntoa]
+        """
         return self.psr_signals[idx].get_detres(params)
 
 
     def _get_phiinv(self, idx, params):
+        """Get the inverse of the fourier domain covariance matrix for a given pulsar.
+
+        For Internal Use of the OptimalStatistic. Users are not recommended to use this!
+        This method retrieves the inverse of the fourier domain covariance matrix
+        for a given pulsar index and set of parameters. This method depends on both
+        the red noise contributions and the GWB contributions and as such should 
+        not be cached as each iteration of the NMOS will have different phiinv.
+
+        Args:
+            idx (int): The index of the pulsar in the self.psrs list
+            params (dict): A dictionary of parameter name:value pairs for the PTA
+
+        Returns:
+            np.ndarray: The inverse of phi for the given pulsar and parameters. [2Nfreq x 2Nfreq]
+        """
         phiinv = self.psr_signals[idx].get_phiinv(params)
         if phiinv.ndim == 1:
             phiinv = np.diag(phiinv)
@@ -1171,6 +1251,21 @@ class OptimalStatistic:
     
     # Compute x^T N y-----------------------------------------------------------
     def _compute_xNy(self, N, x, y):
+        """A method to compute the x^T @ N @ y product
+
+        For Internal Use of the OptimalStatistic. Users are not recommended to use this!
+        This method computes the product x^T @ N @ y, where `N` is a noise covariance
+        matrix or object. `x` and `y` can be vectors or matrices and this method
+        will deal with the situation in which a marginalizing timing model is used.
+
+        Args:
+            N (np.ndarray or Object): The noise covariance matrix or object.
+            x (np.ndarray): The first vector or matrix in the product. [Ntoa x Nx]
+            y (np.ndarray): The second vector or matrix in the product. [Ntoa x Ny]
+
+        Returns:
+            np.ndarray: The result of the product x^T @ N @ y. [Nx x Ny]
+        """
         if self.marginalizing_timing_model:
             # The marginalizing timing model doesn't support 
             # different left and right arrays :(
@@ -1184,6 +1279,28 @@ class OptimalStatistic:
     # Matrix products-----------------------------------------------------------
     @product_cache(['white_noise', 'basis', 'delay'], save_stats=True)
     def _get_FNdt(self, idx, params):
+        """A method to compute the F^T @ N @ dt product
+
+        For Internal Use of the OptimalStatistic. Users are not recommended to use this!
+        This method computes the product F^T @ N @ dt, where `F` is the fourier design
+        matrix for the GWB model, `N` is the noise covariance matrix or object, and
+        `dt` is the vector of delayed timing residuals for a given pulsar and parameters.
+
+        Since this method depends on F, N and dt, the results will be cached based 
+        only on the basis, white noise, and delay parameters for that particular pulsar.
+        Parameters which affect the this matrix product can be checked in the
+        `_cache_params` dictionary where the keys are 'white_noise', 'basis', and 'delay'.
+        and the values are the set of parameters that fit those categories for each
+        pulsar. (i.e. `self._cache_params['white_noise'][0]` will get the parameters
+        which affect the white noise for pulsar 0)
+
+        Args:
+            idx (int): The index of the pulsar.
+            params (dict): A dictionary of parameter name:value pairs for the PTA.
+
+        Returns:
+            np.ndarray: The result of the product F^T @ N @ dt. [Ntoa]
+        """
         F = self._get_F_mat(idx, params)
         N = self._get_N_obj(idx, params)
         dt = self._get_dt(idx, params)
@@ -1192,6 +1309,28 @@ class OptimalStatistic:
 
     @product_cache(['white_noise', 'basis', 'delay'], save_stats=True)
     def _get_TNdt(self, idx, params):
+        """Compute the product T^T @ N @ dt
+
+        For Internal Use of the OptimalStatistic. Users are not recommended to use this!
+        This method computes the product T^T @ N @ dt, where `T` is the fourier design
+        matrix for the full red noise model, `N` is the noise covariance matrix or object, and
+        `dt` is the vector of delayed timing residuals for a given pulsar and parameters
+
+        Since this method depends on T, N and dt, the results will be cached based
+        only on the basis, white noise, and delay parameters for that particular pulsar.
+        Parameters which affect the this matrix product can be checked in the
+        `_cache_params` dictionary where the keys are 'white_noise', 'basis', and 'delay', 
+        and the values are the set of parameters that fit those categories for each
+        pulsar. (i.e. `self._cache_params['white_noise'][0]` will get the parameters
+        which affect the white noise for pulsar 0)
+
+        Args:
+            idx (int): The index of the pulsar.
+            params (dict): A dictionary of parameter name:value pairs for the PTA.
+
+        Returns:
+            np.ndarray: The result of the product T^T @ N @ dt. [Ntoa]
+        """
         T = self._get_T_mat(idx, params)
         N = self._get_N_obj(idx, params)
         dt = self._get_dt(idx, params)
@@ -1200,6 +1339,27 @@ class OptimalStatistic:
 
     @product_cache(['white_noise', 'basis'], save_stats=True)
     def _get_FNF(self, idx, params):
+        """Compute the product F^T @ N @ F
+
+        For Internal Use of the OptimalStatistic. Users are not recommended to use this!
+        This method computes the product F^T @ N @ F, where `F` is the fourier design
+        matrix for the GWB model and `N` is the noise covariance matrix or object.
+
+        Since this method depends on F and N, the results will be cached based
+        only on the basis and white noise parameters for that particular pulsar.
+        Parameters which affect the this matrix product can be checked in the
+        `_cache_params` dictionary where the keys are 'white_noise' and 'basis',
+        and the values are the set of parameters that fit those categories for each
+        pulsar. (i.e. `self._cache_params['white_noise'][0]` will get the parameters
+        which affect the white noise for pulsar 0)
+
+        Args:
+            idx (int): The index of the pulsar.
+            params (dict): A dictionary of parameter name:value pairs for the PTA.
+
+        Returns:
+            np.ndarray: The result of the product F^T @ N @ F. [2Nfreq(F) x 2Nfreq(F)]
+        """
         F = self._get_F_mat(idx, params)
         N = self._get_N_obj(idx, params)
         return self._compute_xNy(N, F, F)
@@ -1207,6 +1367,28 @@ class OptimalStatistic:
 
     @product_cache(['white_noise', 'basis'], save_stats=True)
     def _get_TNT(self, idx, params):
+        """Compute the product T^T @ N @ T
+
+        For Internal Use of the OptimalStatistic. Users are not recommended to use this!
+        This method computes the product T^T @ N @ T, where `T` is the fourier design
+        matrix for the full red noise model and `N` is the noise covariance matrix
+        or object.
+
+        Since this method depends on T and N, the results will be cached based
+        only on the basis and white noise parameters for that particular pulsar.
+        Parameters which affect the this matrix product can be checked in the
+        `_cache_params` dictionary where the keys are 'white_noise' and 'basis',
+        and the values are the set of parameters that fit those categories for each
+        pulsar. (i.e. `self._cache_params['white_noise'][0]` will get the parameters
+        which affect the white noise for pulsar 0)
+
+        Args:
+            idx (int): The index of the pulsar.
+            params (dict): A dictionary of parameter name:value pairs for the PTA.
+
+        Returns:
+            np.ndarray: The result of the product T^T @ N @ T. [2Nfreq(T) x 2Nfreq(T)]
+        """
         T = self._get_T_mat(idx, params)
         N = self._get_N_obj(idx, params)
         return self._compute_xNy(N, T, T)
@@ -1214,6 +1396,30 @@ class OptimalStatistic:
 
     @product_cache(['white_noise', 'basis'], save_stats=True)
     def _get_FNT(self, idx, params):
+        """Compute the product F^T @ N @ T
+
+        For Internal Use of the OptimalStatistic. Users are not recommended to use this!
+        This method computes the product F^T @ N @ T, where `F` is the fourier design
+        matrix for the GWB model, `N` is the noise covariance matrix or object, and
+        `T` is the fourier design matrix for the full red noise model.
+
+        Since this method depends on F, N and T, the results will be cached based
+        only on the basis and white noise parameters for that particular pulsar.
+        Parameters which affect the this matrix product can be checked in the
+        `_cache_params` dictionary where the keys are 'white_noise' and 'basis',
+        and the values are the set of parameters that fit those categories for each
+        pulsar. (i.e. `self._cache_params['white_noise'][0]` will get the parameters
+        which affect the white noise for pulsar 0)
+        NOTE: This will not always be a square matrix since F and T represent
+        different number of frequencies.
+
+        Args:
+            idx (int): The index of the pulsar.
+            params (dict): A dictionary of parameter name:value pairs for the PTA.
+
+        Returns:
+            np.ndarray: The result of the product F^T @ N @ T. [2Nfreq(F) x 2Nfreq(T)]
+        """
         F = self._get_F_mat(idx, params)
         N = self._get_N_obj(idx, params)
         T = self._get_T_mat(idx, params)
