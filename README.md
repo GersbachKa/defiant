@@ -1,8 +1,13 @@
-# defiant 
+# Defiant 
 
 DEFIANT (Data-driven Enhanced Frequentist Inference Analysis with Next-gen Techniques) is a python package primarily aiming for robust, fast, and frequentist analysis of Pulsar Timing Array data using the PTA Optimal Statistic (OS). This package presents the parallel pipeline to the Bayesian PTA pipeline [ENTERPRISE](https://github.com/nanograv/enterprise). 
 
 This package is primarily based on the work of the [PTA Optimal Statistic](https://arxiv.org/abs/0809.0701) and encorporates some coding techniques from the previous implementation in [enterprise_extensions/frequentist/optimal_statistic.py](https://github.com/nanograv/enterprise_extensions/blob/master/enterprise_extensions/frequentist/optimal_statistic.py) but encorporates the many expansions on the method developed since then. For details on what OS expansions this package supports, check the [Usage](#usage) section.
+
+
+### A note about versions
+
+Since this software is still relatively new, methods and usage may change between versions more than other more-mature softwares will. Sorry! This is especially the case for hidden methods (those marked with an underscore before the method name). If major changes happen to the use case, as happened with the V1 release, we will try to keep separate branches on github to help prevent the need for constant updating of older scripts. 
 
 
 ## Citation
@@ -74,14 +79,14 @@ To use the OptimalStatistic, you must instance the object. There are 3 required 
 ```python
 # After defining psrs and pta
 from defiant import OptimalStatistic
-OS_obj = OptimalStatistic(psrs, pta, gwb_name='gw')
+os_obj = OptimalStatistic(psrs, pta, gwb_name='gw')
 ```
 
 There are many optional parameters upon instancing which you can use to skip some additional steps, but for simplicity, we will show it in full. You will get a warning if you do not supply the Bayesian Common Uncorrelated Red Noise (CURN) MCMC chain in the initialization, but we can set it afterwards using the [OS_obj.set_chain_params()]() method. This method takes in parameters in many varieties of ways. Checking the documentation is the best way to find your favorite method. The easiest way is to supply a pre-made [la_forge.core.Core](https://github.com/nanograv/la_forge) object (check la_forge [documentation](https://la-forge.readthedocs.io/en/latest/tutorial1.html) for how to make a core from chain files). 
 
 ```python
 # After instancing a la_forge core named lfcore
-OS_obj.set_chain_params(core=lfcore)
+os_obj.set_chain_params(core=lfcore)
 ```
 
 Next and finally, we need to decide on which version of the Optimal Statistic you run. There are many options and they can all work together. If you want a fun, interactive way to figure out which version to run, check the [defiant.fun.what_kind_of_OS_are_you()](https://github.com/GersbachKa/defiant/blob/main/defiant/extra/fun.py) function! If you'd rather a less silly way, you can check the DEFIANT choice tree below:
