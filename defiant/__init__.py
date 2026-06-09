@@ -1,6 +1,18 @@
-from .core import OptimalStatistic
 
-defiant_ascii = """
+from defiant.core import OptimalStatistic
+from defiant.utils import check_jax_64bit, enable_jax_64bit
+
+if not check_jax_64bit(warn=False):
+    msg = "Defiant needs JAX 64-bit mode for numerical stability. Attempting to enable..."
+    print(msg)
+    try:
+        enable_jax_64bit()
+        print('Success!')
+    except RuntimeError as e:
+        print(f"Error occurred while enabling JAX 64-bit mode: {e}")
+
+
+defiant_ascii = r"""
 ______ ___________ _____  ___   _   _ _____ 
 |  _  \  ___|  ___|_   _|/ _ \ | \ | |_   _|
 | | | | |__ | |_    | | / /_\ \|  \| | | |  

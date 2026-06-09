@@ -1,7 +1,6 @@
-import numpy as np
-import healpy as hp
 
-from enterprise.signals import anis_coefficients as ac
+import numpy as np
+
 from scipy.special import legendre
 
 from .custom_exceptions import ORFNotFoundError
@@ -29,12 +28,17 @@ def orf_template(psr1, psr2):
     This is a simple template for creating your own ORF functions. The function
     will take two enterprise.Pulsar objects as input and return a float.
 
-    Args:
-        psr1 (enterprise.Pulsar): The first pulsar object
-        psr2 (enterprise.Pulsar): The second pulsar object
+    Parameters
+    ----------
+    psr1 : enterprise.Pulsar
+        The first pulsar object
+    psr2 : enterprise.Pulsar
+        The second pulsar object
 
-    Returns:
-        float: The ORF value
+    Returns
+    -------
+    float
+        The ORF value
     """
     # It is also a good habit to include a check for the same pulsar. Technically,
     # DEFIANT should not supply two of the same pulsar, but this is still good practice.
@@ -115,12 +119,17 @@ def get_pulsar_separation(psr1, psr2):
     This function will return the separation between two enterprise.Pulsar pulsars
     in radians. This function supports vectorization.
 
-    Args:
-        psr1 (enterprise.Pulsar or iterable): The first pulsar object(s)
-        psr2 (enterprise.Pulsar or iterable): The second pulsar object(s)
+    Parameters
+    ----------
+    psr1 : enterprise.Pulsar or iterable
+        The first pulsar object(s)
+    psr2 : enterprise.Pulsar or iterable
+        The second pulsar object(s)
 
-    Returns:
-        float or np.ndarray: The separation between the two pulsars in radians
+    Returns
+    -------
+    float or np.ndarray
+        The separation between the two pulsars in radians
     """
     if hasattr(psr1, '__iter__') and hasattr(psr2, '__iter__'):
         pos1 = np.array([p.pos for p in psr1])
@@ -142,14 +151,17 @@ def orf_hd(arg1, arg2 = None):
     either two enterprise.Pulsar objects or a pulsar separation in radians. This
     function supports vectorization.
 
-    Args:
-        arg1 (enterprise.Pulsar or float): The first pulsar object or the pulsar 
-                separation in radians.
-        arg2 (enterprise.Pulsar or None): The second pulsar object or None if arg1 
-                is pulsar separation. Defaults to None.
+    Parameters
+    ----------
+    arg1 : enterprise.Pulsar or float
+        The first pulsar object or the pulsar separation in radians.
+    arg2 : enterprise.Pulsar or None, optional
+        The second pulsar object or None if arg1 is pulsar separation. Defaults to None.
 
-    Returns:
-        float: The ORF value
+    Returns
+    -------
+    float
+        The ORF value
     """
     if arg2 is not None:
         # Two pulsar arguments
@@ -179,14 +191,17 @@ def orf_dp(arg1, arg2 = None):
     two enterprise.Pulsar objects or a pulsar separation in radians. This function 
     supports vectorization.
 
-    Args:
-        arg1 (enterprise.Pulsar or float): The first pulsar object or the pulsar 
-                separation in radians.
-        arg2 (enterprise.Pulsar or None): The second pulsar object or None if arg1 
-                is pulsar separation. Defaults to None.
+    Parameters
+    ----------
+    arg1 : enterprise.Pulsar or float
+        The first pulsar object or the pulsar separation in radians.
+    arg2 : enterprise.Pulsar or None, optional
+        The second pulsar object or None if arg1 is pulsar separation. Defaults to None.
 
-    Returns:
-        float: The ORF value
+    Returns
+    -------
+    float
+        The ORF value
     """
     if arg2 is not None:
         # Two pulsar arguments
@@ -213,14 +228,17 @@ def orf_mp(arg1, arg2 = None):
     two enterprise.Pulsar objects or a pulsar separation in radians. This function
     supports vectorization.
 
-    Args:
-        arg1 (enterprise.Pulsar or float): The first pulsar object or the pulsar 
-                separation in radians.
-        arg2 (enterprise.Pulsar or None): The second pulsar object or None if arg1 
-                is pulsar separation. Defaults to None.
+    Parameters
+    ----------
+    arg1 : enterprise.Pulsar or float
+        The first pulsar object or the pulsar separation in radians.
+    arg2 : enterprise.Pulsar or None, optional
+        The second pulsar object or None if arg1 is pulsar separation. Defaults to None.
 
-    Returns:
-        float: The ORF value
+    Returns
+    -------
+    float
+        The ORF value
     """
     if arg2 is not None:
         # Two pulsar arguments
@@ -250,14 +268,17 @@ def orf_gwdp(arg1, arg2 = None):
     using either two enterprise.Pulsar objects or a pulsar separation in radians. 
     This function supports vectorization.
 
-    Args:
-        arg1 (enterprise.Pulsar or float): The first pulsar object or the pulsar 
-                separation in radians.
-        arg2 (enterprise.Pulsar or None): The second pulsar object or None if arg1 
-                is pulsar separation. Defaults to None.
-
-    Returns:
-        float: The ORF value
+    Parameters
+    ----------
+    arg1 : enterprise.Pulsar or float
+        The first pulsar object or the pulsar separation in radians.
+    arg2 : enterprise.Pulsar or None, optional
+        The second pulsar object or None if arg1 is pulsar separation. Defaults to None.
+    
+    Returns
+    -------
+    float
+        The ORF value
     """
     if arg2 is not None:
         # Two pulsar arguments
@@ -284,14 +305,17 @@ def orf_gwmp(arg1, arg2 = None):
     function using either two enterprise.Pulsar objects or a pulsar separation 
     in radians. This function supports vectorization.
 
-    Args:
-        arg1 (enterprise.Pulsar or float): The first pulsar object or the pulsar 
-                separation in radians.
-        arg2 (enterprise.Pulsar or None): The second pulsar object or None if arg1 
-                is pulsar separation. Defaults to None.
+    Parameters
+    ----------
+    arg1 : enterprise.Pulsar or float
+        The first pulsar object or the pulsar separation in radians.
+    arg2 : enterprise.Pulsar or None, optional
+        The second pulsar object or None if arg1 is pulsar separation. Defaults to None.
 
-    Returns:
-        float: The ORF value
+    Returns
+    -------
+    float
+        The ORF value
     """
     if arg2 is not None:
         # Two pulsar arguments
@@ -320,14 +344,17 @@ def orf_st(arg1, arg2 = None):
 
     Original author: Nima Laal from enterprise_extensions.model_orfs.py
 
-    Args:
-        arg1 (enterprise.Pulsar or float): The first pulsar object or the pulsar 
-                separation in radians.
-        arg2 (enterprise.Pulsar or None): The second pulsar object or None if arg1 
-                is pulsar separation. Defaults to None.
+    Parameters
+    ----------
+    arg1 : enterprise.Pulsar or float
+        The first pulsar object or the pulsar separation in radians.
+    arg2 : enterprise.Pulsar or None, optional
+        The second pulsar object or None if arg1 is pulsar separation. Defaults to None.
 
-    Returns:
-        float: The ORF value
+    Returns
+    -------
+    float
+        The ORF value
     """
     if arg2 is not None:
         # Two pulsar arguments
@@ -354,14 +381,19 @@ def orf_legendre(arg1, arg2 = None, l=0):
     reduction function using either two enterprise.Pulsar objects or a pulsar 
     separation in radians. This function supports vectorization.
 
-    Args:
-        arg1 (enterprise.Pulsar or float): The first pulsar object or the pulsar 
-                separation in radians.
-        arg2 (enterprise.Pulsar or None): The second pulsar object or None if arg1 
-                is pulsar separation. Defaults to None.
-
-    Returns:
-        float: The ORF value
+    Parameters
+    ----------
+    arg1 : enterprise.Pulsar or float
+        The first pulsar object or the pulsar separation in radians.
+    arg2 : enterprise.Pulsar or None, optional
+        The second pulsar object or None if arg1 is pulsar separation. Defaults to None.
+    l : int
+        The order of the legendre polynomial. Defaults to 0.
+        
+    Returns
+    -------
+    float
+        The ORF value
     """
     if arg2 is not None:
         # Two pulsar arguments
@@ -381,99 +413,7 @@ def orf_legendre(arg1, arg2 = None, l=0):
     return ret
 
 
-# Anisotropic ORF functions ---------------------------------------------------
-
 # TODO: put in per-telescope orf functions
-
-
-def anisotropic_pixel_basis(psrs, nside, pair_idx=None):
-    """An anisotropic overlap reduction function using a pixel basis
-
-    This function will return an anisotropic overlap reduction function using a pixel
-    basis. This function will take a list of enterprise.Pulsar objects, a healpix nside,
-    and an optional pair index array. 
-    NOTE: This function uses the vector of the GW propogation direction and not
-    the source direction. If you want the other, you can invert the skymap with
-    utils.invert_skymap().
-    NOTE: This function works differently than the other ORF functions, as it does
-    not take two pulsar objects as input, and returns a full design matrix rather
-    than individual basis functions.
-
-    Args:
-        psrs (enterprise.Pulsar): A list of enterprise.Pulsar objects
-        nside (int): The healpix nside
-        pair_idx (np.ndarray): The pairwise index array. Set to None to have the 
-                function generate the pair index array. Defaults to None.
-
-    Returns:
-        np.ndarray: The design matrix of the anisotropic ORF basis [npairs, npix]
-    """
-    if pair_idx is None:
-        pair_idx = np.array([(a,b) for a in range(len(psrs)) for b in range(a+1,len(psrs))])
-    npairs = pair_idx.shape[0]
-
-    npix = hp.nside2npix(nside)
-    gwtheta,gwphi = hp.pix2ang(nside,np.arange(npix))
-
-    psrtheta = np.array([p.theta for p in psrs])
-    psrphi = np.array([p.phi for p in psrs])
-
-    FpFc = ac.signalResponse_fast(psrtheta,psrphi,gwtheta,gwphi)
-    Fp,Fc = FpFc[:,0::2], FpFc[:,1::2] 
-
-    R_abk = np.zeros( (npairs,npix) )
-    # Now lets do some multiplication
-    for i,(a,b) in enumerate(pair_idx):
-        R_abk[i] = Fp[a]*Fp[b] + Fc[a]*Fc[b]
-
-    return R_abk
-
-
-def anisotropic_spherical_harmonic_basis(psrs, lmax, nside, pair_idx=None):
-    """An anisotropic overlap reduction function using a spherical harmonic basis
-
-    This function will return an anisotropic overlap reduction function using a
-    spherical harmonic basis. This function will take a list of enterprise.Pulsar
-    objects, a maximum l value, a healpix nside, and an optional pair index array.
-    NOTE: This function uses the vector of the GW propogation direction and not
-    the source direction. If you want the other, you can invert the skymap with
-    utils.invert_skymap().
-    NOTE: This function works differently than the other ORF functions, as it does
-    not take two pulsar objects as input, and returns a full design matrix rather
-    than individual basis functions.
-
-    Args:
-        psrs (enterprise.Pulsar): A list of enterprise.Pulsar objects
-        lmax (int): The maximum l value
-        nside (int): The healpix nside
-        pair_idx (np.ndarray): The pairwise index array. Set to None to have the 
-                function generate the pair index array. Defaults to None.
-    
-    Returns:
-        np.ndarray: The design matrix of the anisotropic ORF basis [npairs, m_modes]
-    """
-    if pair_idx is None:
-        pair_idx = np.array([(a,b) for a in range(len(psrs)) for b in range(a+1,len(psrs))])
-    npairs = pair_idx.shape[0]
-
-    m_modes = (lmax+1)**2
-
-    psrtheta = np.array([p.theta for p in psrs])
-    psrphi = np.array([p.phi for p in psrs])
-    psr_locs = np.array([psrphi,psrtheta]).T
-
-    shape_R_lm = ac.anis_basis(psr_locs,lmax,nside)
-
-    # (modes, pulsar, pulsar)
-    # Basis will be (m=0,l=0), (m=1,l=-1), (m=1,l=0), (m=1,l=1), (m=2,l=-2)...
-
-    # We need to reorient the P_lm matrix to be (pair, modes)
-    R_lm = np.zeros( (npairs, m_modes) )
-
-    for i,(a,b) in enumerate(pair_idx):
-        R_lm[i] = shape_R_lm[:,a,b]
-
-    return R_lm
 
 
 # Defined ORFs ----------------------------------------------------------------

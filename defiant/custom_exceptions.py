@@ -1,7 +1,7 @@
 
 class BadCoreError(Exception):
-    """A Simple Exception class for more specific error messages relating to the 
-    la_forge.core.Core() usage in the DEFIANT
+    """An Exception for more specific error messages relating to the 
+    la_forge.core.Core() usage in DEFIANT
     """
     def __init__(self,message):
         self.message = message
@@ -10,8 +10,8 @@ class BadCoreError(Exception):
         return f'InvalidCoreError: {self.message}'
     
 class BadParametersError(Exception):
-    """A Simple Exception class for more specific error messages relating to bad
-    parameter usage in the DEFIANT
+    """An Exception for more specific error messages relating to bad parameter 
+    usage in DEFIANT
     """
     def __init__(self,message):
         self.message = message
@@ -20,8 +20,8 @@ class BadParametersError(Exception):
         return f'BadParameterError: {self.message}'
     
 class ModelPTAError(Exception):
-    """A Simple Exception class for more specific error messages relating to the 
-    enterprise PTA object usage in the DEFIANT
+    """An Exception for more specific error messages relating to the enterprise 
+    PTA object usage in DEFIANT
     """
     def __init__(self,message):
         self.message = message
@@ -30,8 +30,8 @@ class ModelPTAError(Exception):
         return f'ModelPTAError: {self.message}'
     
 class NMOSInteruptError(Exception):
-    """A Simple Exception class for more specific error messages relating to the 
-    noise marginalization of the DEFIANT
+    """An Exception for more specific error messages relating to the noise 
+    marginalization of DEFIANT
     """
     def __init__(self,message):
         self.message = message
@@ -40,8 +40,8 @@ class NMOSInteruptError(Exception):
         return f'NMOSIteruptionError: {self.message}'
     
 class PCOSInteruptError(Exception):
-    """A Simple Exception class for more specific error messages relating to the 
-    pair covaraiance of the DEFIANT
+    """An Exception for more specific error messages relating to the pair 
+    covariance of DEFIANT
     """
     def __init__(self,message):
         self.message = message
@@ -50,8 +50,8 @@ class PCOSInteruptError(Exception):
         return f'InteruptedPairCovariance: {self.message}'
     
 class ORFNotFoundError(Exception):
-    """A Simple Exception class for more specific error messages relating to the 
-    ORF functions in the DEFIANT
+    """An Exception for more specific error messages relating to the ORF 
+    functions in DEFIANT
     """
     def __init__(self,message):
         self.message = message
@@ -60,8 +60,8 @@ class ORFNotFoundError(Exception):
         return f'ORFNotFoundError: {self.message}'
     
 class NaNPairwiseError(Exception):
-    """A Simple Exception class for more specific error messages relating to the 
-    NaN values in the pair-wise uncertainties
+    """An Exception for more specific error messages relating to the NaN values 
+    in the pair-wise uncertainties in DEFIANT
 
     This exception occurs when there are NaN values found in the pairwise uncertainties,
     either sig_ab or sig_ab(f_k). This most often occurs when the individual pulsar Z 
@@ -98,3 +98,5 @@ class NaNPairwiseError(Exception):
         text += 'in NaN values in the pair-wise uncertainties. If you are using particularly noisy pulsars, '
         text += 'you may want to try using clip_z in the constructor.'
         return textwrap.fill(text,width=80)
+    
+    
