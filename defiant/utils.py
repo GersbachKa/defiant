@@ -473,6 +473,7 @@ def binned_pair_correlations(xi, rho, sig, bins=10, orf='hd'):
             subORF = orf_func(subXi)[:,None]
 
             r,s2 = linear_solve(subORF,subSig,subRho,method='pinv')
+            r,s2 = r.item(), s2.item() # Recent numpy change forces this 
 
             xiavg[i] = np.average(subXi)
             bin_orf = orf_func(xiavg[i])
