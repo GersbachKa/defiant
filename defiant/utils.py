@@ -3,6 +3,7 @@ import numpy as np
 import scipy.linalg as sl
 from scipy.stats import multivariate_normal
 from scipy.linalg import cho_factor, cho_solve
+from scipy.integrate import quad
 from enterprise.constants import fyr as f_year
 
 from .custom_exceptions import *
@@ -777,3 +778,135 @@ def is_diagonal(C):
     if len(C.shape) != 2:
         raise ValueError('Matrix must be 2D!')
     return np.all( C == np.diag(np.diag(C)) )
+
+
+def siemens_snr_red(A, T, sigma, cadence, rn_log10_A, rn_gamma, pair_a, pair_b, Gamma_ab,
+                    gamma_gw= 13.0/3.0, nmodes=None):
+    """Calculate the analytic PTA SNR using the Siemens et al. (2013, arXiv:1305.3196v1)
+    expression, including pulsar-specific intrinsic red noise.
+
+    The analytic SNR is calculated by integrating the squared GWB power spectral density (PSD), 
+    weighted by the given ORF correlations and the total noise PSD of each pulsar pair. 
+    The analytic expression is
+
+        rho^2 = 2*T * sum_(a<b) Gamma_ab^2 * integral[ Pg(f)^2 / (Pa(f)*Pb(f)) ] df
+
+    where the total auto-covariance PSD of pulsar 'a' is
+
+        Pa(f) = Pg(f) + Prn_a(f) + Pwhite.
+
+    The GWB and intrinsic red-noise PSDs are modeled as power laws 
+    with their respective amplitudes and spectral indices.
+
+    The frequency integral is evaluated numerically using `scipy.integrate.quad`, 
+    which performs adaptive quadrature. The integrand is evaluated at frequencies 
+    selected by the integration algorithm until the requested accuracy is reached
+    or the subdivision limit is encountered.
+
+    Note: assumes equal cadence, white-noise RMS, and timespan for all pulsars. This implementation 
+    evaluates the full frequency-dependent expression without need for weak-signal or intermediate-signal
+    asymptotic approximation regimes.
+
+    Args:
+        A (float):
+            Dimensionless characteristic-strain amplitude of the gravitational-wave background 
+            at a reference frequency of 1/year.
+
+        T (float):
+            PTA observing timespan in seconds. Determines the lowest
+            frequency included in the integration, f_low = 1/T.
+
+        sigma (float):
+            RMS timing uncertainty of the white-noise component,
+            in seconds. Assumed identical for all pulsars.
+
+        cadence (float):
+            Observing cadence in observations per second.
+
+        rn_log10_A (array_like, shape [n_psrs,]):
+            Logarithms of the intrinsic red-noise amplitudes,
+            with one amplitude assigned to each pulsar.
+
+        rn_gamma (array_like, shape [n_psrs,]):
+            Intrinsic red-noise spectral indices for each pulsar.
+            Must follow the same pulsar ordering as rn_log10_A.
+
+        pair_a (array_like of int, shape [n_pairs,]):
+            Indices of the first pulsar in each unique pulsar pair.
+
+        pair_b (array_like of int, shape [n_pairs,]):
+            Indices of the second pulsar in each unique pulsar pair.
+            Must have the same ordering as pair_a and Gamma_ab.
+
+        Gamma_ab (array_like of float, shape [n_pairs,]):
+            Overlap reduction function evaluated for each pulsar pair.
+
+        gamma_gw (float, optional):
+            Spectral index of the GWB timing-residual PSD. Defaults to 13/3, 
+            corresponding to a stochastic GWB from SMBHB's.
+
+        nmodes (int or None, optional):
+            Number of Fourier frequencies used to set the upper
+            integration bound, f_high = nmodes/T. If None, 
+            the upper bound is the Nyquist frequency, f_high = cadence/2.
+
+    Returns:
+        rho (float):
+            Analytic expected SNR of the PTA, obtained from the square root 
+            of the integrated squared-SNR expression.
+    """
+
+    # Frequency definitions determining integration bounds
+
+    # Lowest Fourier frequency bound is 1/Timespan
+    f_low = 1.0 / T
+
+    seconds_per_year = 365.25 * 86400.0
+
+    # reference frequency of 1/yr
+    f_yr = 1.0 / seconds_per_year
+
+    # Upper integration bound is Nyquist frequency 
+    # if no user-defined number of Fourier components is provided
+    if nmodes is None:
+        f_high = cadence / 2.0
+    else:
+        f_high = nmodes / T
+
+    # Time between observations in seconds
+    delta_t = 1.0 / cadence
+
+    ## Compute frequency-independent quantities before the integrand
+
+    # White-noise PSD, constant across frequencies
+    Pwhite = (2.0 * sigma**2 * delta_t)
+
+    # Convert intrinsic RN amplitudes from log to linear
+    Arn = (10.0**rn_log10_A)
+
+    # Square ORF coefficiencts for pair weighting
+    Gamma2 = (Gamma_ab**2)
+
+    ## Define the frequency-dependent integrand function for the SNR integral
+    def integrand(f):
+
+        # GWB PSD at frequency f
+        Pg = A**2 / (12.0 * np.pi**2) * (f / f_yr)**(-gamma_gw) * seconds_per_year**3
+
+        # IRN PSD for every pulsar at frequency f
+        Prn = (Arn**2 / (12.0 * np.pi**2) * (f / f_yr)**(-rn_gamma) * seconds_per_year**3)
+        
+        # Total auto PSD for each pulsar: GWB + intrinsic red noise + white noise
+        Ptot = (Pg + Prn + Pwhite)
+
+        # Compute all pairwise contributions
+        # Weight each pulsar pair by their squared ORF and inverse product of their total PSDs
+        pair_weight = (
+            Gamma2 / (Ptot[pair_a] * Ptot[pair_b])
+        )
+
+        # Sum all pulsar pairwise contributions at frequency f 
+        # and multiply by the squared GWB PSD to get the integrand
+        return (
+            Pg**2 * np.sum(pair_weight)
+        )
