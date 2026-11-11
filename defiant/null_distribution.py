@@ -315,7 +315,7 @@ def super_scramble_OS(os_obj, params=None, gamma=None, n_scrambles=1000, swap_po
     return pval, target_snr, null_snr
 
 
-def GX2(rho, def_os, Z, phihat, max_iter=50, atol=1e-12, rtol=1e-12, pole_eps=1e-12):
+def GX2(os_obj, params=None, gamma=None, max_iter=50, atol=1e-12, rtol=1e-12, pole_eps=1e-12):
     """Calculates the upper-tail probability P(rho_H0 >= rho) with the generalized-chi-squared (GX2) null distribution 
     (no-signal hypothesis) of the optimal statistic (OS) SNR using the Lugannani-Rice saddlepoint approximation.
 
@@ -333,23 +333,32 @@ def GX2(rho, def_os, Z, phihat, max_iter=50, atol=1e-12, rtol=1e-12, pole_eps=1e
 
     With u and w defined in terms of the saddlepoint and cumulants of the null distribution, 
     both encoding information about the GX2 distribution of the OS SNR. 
+
+    Also samples from the null distribution of the SNR for plotting using `null_dist`, its doc comments are as follows:
+        Draws SNRs from the null distirbution of SNRs
+
+        Args:
+            n_samples (int, optional):
+                Number of samples to draw from null SNR distribution, defaults to 1.
+
+        Returns:
+            null_snrs (shape: n_samples)
+                Drawn SNRs from null distribution.
     
     Notes: eigenvalues include both signs. Handles SNR above and below the null mean. Can take multiple rho values at once,
     all corresponding to the same PTA configuration; this is ideal for many realizations of one configuration. 
 
     Args:
-        rho (array, shape [N,]):
-            Observed OS SNR values for which to calculate the upper-tail probability.
-
-        def_os (defiant.core.OptimalStatistic): 
+        os_obj (defiant.core.OptimalStatistic): 
             The OptimalStatistic object.
 
-        Z (ndarray of float, shape [n_psrs, 2*n_freq, 2*n_freq]):
-            Fourier-space covariance matrices for each pulsar. Each Z_a is assumed symmetric.
-
-        phihat (ndarray of float, shape [2*n_freq,]):
-            Diagonal elements of the Fourier-space GWB cross-covariance template. 
-            Used to construct the pairwise matrices B_ab.
+        params (dict or int, optional): 
+            The parameters or indexes to use. Check the documentation for usage info. 
+            Defaults to None.
+                
+        gamma (float, optional): 
+            The spectral index to use for the analysis. Check documentation for usage info. 
+            Defaults to None.
 
         max_iter (int, optional):
             Maximum number of iterations for the Newton-Raphson solver. Default is 50.
@@ -360,32 +369,52 @@ def GX2(rho, def_os, Z, phihat, max_iter=50, atol=1e-12, rtol=1e-12, pole_eps=1e
         rtol (float, optional):
             Relative tolerance for convergence of the Newton-Raphson solver. Default is 1e-12.
 
+        pole_eps (float, optional):
+            Relative offset from eigenvalue bounds for the safeguarded Newton-Raphson root-solver. Default is 1e-12.
+
     Returns:
         p (array, shape [N,]): 
             P(rho_H0 >= rho); returns NaN where the solver did not converge
         
-        t_hat (array, shape [N,]): 
-            saddlepoint (manually set to 0 where rho is near the mean)
-
-        converged (array, shape [N,]): 
-            bool array of whether the Newton-Raphson solver converged for each rho value
+        target_SNR (float): 
+            sinal-present SNR calculated from the os_obj
 
         eigs (array, shape [n_psrs*2*n_freq,]):
-            eigenvalues of the Q matrix, which define the generalized chi-square null distribution of the OS SNR
+            eigenvalues of the Q matrix, which define the generalized chi-squared null distribution of the OS SNR
+
+        null_dist (function):
+            samples from the distribution of SNRs under the null hypothesis
     """
 
-    # Convert rho to a numpy array and ensure it is at least 1D
-    rho = np.atleast_1d(np.asarray(rho, dtype=np.float64))
+    # First, get parameter dictionary, and gamma
+    pars, idx, gam = os_obj._parse_params(params, 1, gamma)
+    # Only one iteration is allowed, so lets unpack these
+    pars, gam = pars[0], gam[0]
+    phihat = utils.powerlaw(os_obj.freqs, 0, gam, 2)
 
-    # Builds Q matrix from the ORF-weighted pulsar cross-correlations
+    # Calculate the OS matrix products. Will need to shift X but not Z!
+    X,Z = os_obj.compute_XZ(pars)
+
+    # Compute the OS on this as the signal hypothesis
+    rho_ab, sig_ab = os_obj.compute_rho_sig(X, Z, phihat)
+    C = np.diag(sig_ab**2)
+
+    A2,A2s = utils.linear_solve(os_obj.orf_design_matrix, C, rho_ab,
+                                None, method='diagonal')
+    # Enforce single-component OS
+    if np.array([A2]).size > 1:
+        raise ValueError("Multi-component OS is not supported for the GX2.")
+        # TODO: Explore implementations for this
+    else:
+        target_snr = np.squeeze(A2/np.sqrt(A2s)).item()
+
     Q0 = build_Q_matrix(
-        def_os,
+        os_obj.pair_idx,
+        os_obj.orf_design_matrix[0],
         Z,
         phihat
     )
     
-    # Calculates the eigenvalues of the Q matrix, 
-    # which define the generalized chi-square null distribution of the OS SNR
     eigs = np.linalg.eigvalsh(Q0)
 
     # Null cumulants
@@ -400,78 +429,70 @@ def GX2(rho, def_os, Z, phihat, max_iter=50, atol=1e-12, rtol=1e-12, pole_eps=1e
     # rho < mu0 -> (t_neg, 0)
     t_neg = 0.5 / eigs.min() * (1.0 - pole_eps)
     t_pos = 0.5 / eigs.max() * (1.0 - pole_eps)
-    above = rho > mu0
+    above = target_snr > mu0
     lo = np.where(above, 0.0, t_neg)
     hi = np.where(above, t_pos, 0.0)
 
     # Gaussian initial guess, K'(t) ~= mu0 + var0*t 
     # else bracket midpoint (NaN fails the comparisons)
-    t = (rho - mu0) / var0
+    t = (target_snr - mu0) / var0
     # finds if and where t is not above low & below hi, then replace with bisection midpoint
     t = np.where((t > lo) & (t < hi), t, 0.5 * (lo + hi))
 
-    # CGF values at the saddlepoint, captured as each root converges
-    K = np.full(rho.shape, np.nan)
-    K2 = np.full(rho.shape, np.nan)
+    # if observed SNR == mu0 (null mean), then root is converged
+    converged = target_snr == mu0
 
-    # converged is indices where observed rho == mu0 (null mean)
-    converged = rho == mu0
-    # enforce saddlepoint and cumulants approriately for these cases
-    t[converged] = 0.0
-    K[converged] = 0.0
-    K2[converged] = var0
+    # enforce saddlepoint and cumulants appropriately for these cases
+    if converged:
+        t = 0.0
+        K = 0.0
+        K2 = var0
+    else:
+        # tolerance for root finding, relative to SNR
+        tol = atol + rtol * np.abs(target_snr)
 
-    tol = atol + rtol * np.abs(rho)
-    # finds indices of roots still being iterated
-    # aka nonzero entries in ~converged (NOT converged)
-    idx = np.flatnonzero(~converged)          
+        for it in range(max_iter + 1):
 
-    for it in range(max_iter + 1):
-        if idx.size == 0: # if all roots are converged, break loop
-            break
+            # calculate first derivative of the CGF (K')
+            d = 1.0 - 2.0 * t * eigs           # denom of K': shape = [1, eigs]
+            a = eigs / d                       # matrix of all summation terms in K': shape = [1, eigs]
+            f = a.sum() - target_snr     # sum over a's eigs dimension (columns) // f = K'(t) - SNR: shape = [1,]
 
-        d = 1.0 - 2.0 * t[idx, None] * eigs    # denom of K': shape = [active_roots, eigs]
-        a = eigs / d                           # matrix of all summation terms in K': shape = [active_roots, eigs]
-        f = a.sum(axis=1) - rho[idx]           # sum over a's eigs dimension (columns) // f = K'(t) - rho: shape = [active_roots,]
+            # If root has converged: record K and K''
+            if np.abs(f) <= tol: # if residual is within relative tolerance, calculate cumulants
+                K = -0.5 * np.log(d).sum() # CGF
+                K2 = 2.0 * np.sum(a**2) # second derivative of CGF
+                break
+            else: # NaN are placeholders for an unconverged root
+                K = np.nan 
+                K2 = np.nan
 
-        # Roots that just converged: record K and K'' from this same pass
-        done = np.abs(f) <= tol[idx] # checks if residual is within tolerance for specific root
-        if done.any(): # if root is converged, calculate cumulants
-            j = idx[done]
-            ad = a[done]
-            converged[j] = True # change converged to True for these indices
-            K[j] = -0.5 * np.log(d[done]).sum(axis=1) # CGF
-            K2[j] = 2.0 * np.einsum("ik,ik->i", ad, ad) # second derivative of CGF
+            # If loop has reached max iterations, break loop
+            if it == max_iter: 
+                break
 
-        if it == max_iter: # if reached max iterations, break loop
-            break
-        keep = ~done # keep iterating any unconverged roots
-        idx, f, a = idx[keep], f[keep], a[keep] # update arrays
-        if idx.size == 0: # if all roots converged, break loop
-            break
+            # If unconverged: tighten bracket and propose Newton-Raphson proposal
+            # Tighten bracket (K' increasing), then Newton step or bisection
+            lo_i = np.where(f < 0.0, t, lo) # replace old lo with t if f < 0, true root must be between t and hi
+            hi_i = np.where(f > 0.0, t, hi) # replace old hi with t if f > 0, true root must be between lo and t
+            lo, hi = lo_i, hi_i # new bounds
 
-        # Tighten bracket (K' increasing), then Newton step or bisection
-        ti = t[idx]
-        lo_i = np.where(f < 0.0, ti, lo[idx]) # replace old lo with ti if f < 0, true root must be between ti and hi
-        hi_i = np.where(f > 0.0, ti, hi[idx]) # replace old hi with ti if f > 0, true root must be between lo and ti
-        lo[idx], hi[idx] = lo_i, hi_i # new bounds
+            # propose Newton-Raphson proposal for all unconverged roots
+            # NR-proposal: t_new = t - f(t)/f'(t) = t - f(t)/K''(t)
+            # K''(t_i) = 2 * sum(a^2); sums over k for a_(ik) where i'th t
+            t_nr = t - f / (2.0 * np.sum(a**2))
+            t = np.where((t_nr > lo_i) & (t_nr < hi_i), t_nr, 0.5 * (lo_i + hi_i))
 
-        # propose Newton-Raphson proposal for all unconverged roots
-        # NR-proposal: t_new = t - f(t)/f'(t) = t - f(t)/K''(t)
-        # K''(t_i) = 2 * sum(a^2); einsum sums over k for a_(ik) where i'th t
-        t_nr = ti - f / (2.0 * np.einsum("ik,ik->i", a, a))
-        t[idx] = np.where((t_nr > lo_i) & (t_nr < hi_i), t_nr, 0.5 * (lo_i + hi_i))
-
-    # Lugannani-Rice approxiation to Gaussian p-values
-    # Note: (NaN K/K2 for unconverged roots propagates to NaN p)
+    # Lugannani-Rice approximation to Gaussian p-values
+    # Note: (NaN K/K2 for an unconverged root propagates to NaN p)
     # suppress warnings for now, will account for errors by removing singularity at the mean
     with np.errstate(divide="ignore", invalid="ignore"):
         # calculate Lugannani-Rice variables
 
-        # w = sqrt(2*(t*rho - K(t)))
-        # the inside of sqrt should be guranteed positive since K'(t) = rho, 
+        # w = sqrt(2*(t*SNR - K(t)))
+        # the inside of sqrt should be guranteed positive since K'(t) = SNR, 
         # but avoids floating point precision error with maximum()
-        w = np.sign(t) * np.sqrt(2.0 * np.maximum(t * rho - K, 0.0))
+        w = np.sign(t) * np.sqrt(2.0 * np.maximum(t * target_snr - K, 0.0))
 
         # u = t*sqrt(K''(t))
         u = t * np.sqrt(K2)
@@ -484,11 +505,28 @@ def GX2(rho, def_os, Z, phihat, max_iter=50, atol=1e-12, rtol=1e-12, pole_eps=1e
 
     # Analytic limit of Lugannani-Rice near the null mean, removable singularity
     p_mean = 0.5 - kappa3 / (6.0 * sigma0**3 * np.sqrt(2.0 * np.pi))
-    near_mean = np.abs(rho - mu0) < 1e-4 * sigma0
-    p = np.where(near_mean, p_mean, p)
-    t = np.where(near_mean, 0.0, t)
+    if np.abs(target_snr - mu0) < 1e-4 * sigma0:
+        p = p_mean
+        t = 0
+    
+    # Samples from the null distribution
+    def null_dist(n_samples=1): 
+        """Draws SNRs from the null distirbution of SNRs
 
-    return p, t, converged, eigs
+        Args:
+            n_samples (int, optional):
+                Number of samples to draw from null SNR distribution, defaults to 1.
+
+        Returns:
+            null_snrs (shape: n_samples)
+                Drawn SNRs from null distribution.
+        """
+        u = np.random.normal(0, 1, size=(n_samples, len(eigs))) # shape: [n_samples, n_eigs]
+        null_snrs = np.sum(eigs[None,:]*(u**2), axis=1)
+        return null_snrs
+
+
+    return p, target_snr, eigs, null_dist, it
     
 
 
@@ -694,7 +732,6 @@ def build_Q_matrix(pair_idx, Gamma_ab, Z, phihat):
         Symmetric, unit-null-variance quadratic-form matrix containing the ORF-weighted 
         pulsar cross-correlations. Its eigenvalues define the generalized chi-square null SNR distribution.
     """
-    # pair_idx # [npairs, 2], Gamma_ab # [npsr, npsr], Z #[npsr, 2nfreq, 2nfreq], phihat # [2nfreq]
     # enforce single component OS for now
 
     # sqrt decomposition of Za (Batched eigenvalue decomp)
