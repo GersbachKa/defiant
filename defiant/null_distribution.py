@@ -410,7 +410,7 @@ def GX2(os_obj, params=None, gamma=None, max_iter=50, atol=1e-12, rtol=1e-12, po
 
     Q0 = build_Q_matrix(
         os_obj.pair_idx,
-        os_obj.orf_design_matrix[0],
+        os_obj.orf_design_matrix.squeeze(),
         Z,
         phihat
     )
